@@ -1,0 +1,38 @@
+{
+  "_comment": "Copy to balatro.config.json and edit. QUICK PATH: set BASE_URL / BASE_KEY / MODEL in .env and run with no model argument. API keys come ONLY from env vars named by each model's apiKeyEnv — never put keys in this file. Submission: set submitUrl (or the SUBMIT_URL env var) to a leaderboard backend; set SUBMIT=false or pass --no-submit to opt out entirely.",
+  "balatroPath": "C:\\Path\\To\\SteamLibrary\\steamapps\\common\\Balatro\\Balatro.exe",
+  "basePort": 12346,
+  "relayPort": 3001,
+  "deck": "RED",
+  "stake": "WHITE",
+  "seeds": ["BENCH01", "BENCH02", "BENCH03", "BENCH04", "BENCH05", "BENCH06", "BENCH07", "BENCH08"],
+  "runsPerSeed": 3,
+  "maxDecisionsPerGame": 0,
+  "startupWaitMs": 25000,
+  "submit": true,
+  "submitUrl": "",
+  "submitterHandle": "",
+  "models": [
+    {
+      "name": "gpt-4o-mini",
+      "baseURL": "https://openrouter.ai/api/v1",
+      "model": "openai/gpt-4o-mini",
+      "apiKeyEnv": "OPENROUTER_API_KEY",
+      "mode": "tools",
+      "temperature": 0.3,
+      "maxTokens": 4096,
+      "enabled": false,
+      "pricePerMTokIn": 0.15,
+      "pricePerMTokOut": 0.6
+    },
+    {
+      "name": "llama3.1-8b-local",
+      "baseURL": "http://localhost:11434/v1",
+      "model": "llama3.1:8b",
+      "mode": "json",
+      "temperature": 0.3,
+      "maxTokens": 4096,
+      "enabled": false
+    }
+  ]
+}

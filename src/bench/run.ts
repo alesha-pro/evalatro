@@ -1,148 +1,81 @@
-import { BalatroBotClient, GameState } from "../client/balatrobot.js";
-import { summarizeState } from "../state/summarizer.js";
-import { BalatroTools } from "../tools/balatro-tools.js";
-import { globalBus } from "../bus/index.js";
-import { getDb, insertRun, modelStats, RunRecord } from "./db.js";
 import * as fs from "fs";
-import * as path from "path";
+import { loadConfig, envModel, resolveModelConfig, ModelConfig } from "../config.js";
+import { makeOpenAiPlayer } from "../llm/openai-adapter.js";
+import { maybeSubmit } from "../submit.js";
+import { launchBalatro, waitForHealth, sleep } from "../game/launch.js";
+import { runGame } from "../game/loop.js";
+import { naiveDecide, DecideFn } from "../game/decide.js";
+import { BalatroBotClient } from "../client/balatrobot.js";
+import { getDb, insertRun, recordMovesToDb } from "./db.js";
+import { printLeaderboard } from "./leaderboard.js";
+import { startRelay } from "../stream/relay.js";
 
-const SEEDS = ["BENCH01", "BENCH02", "BENCH03", "BENCH04", "BENCH05"];
-const DECKS = ["RED"];
-const STAKE = "WHITE";
-const RUNS_PER_CELL = 1;
-
-function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
-
-async function startGame(balatroPath: string, port: number): Promise<() => void> {
-  const lovelyPath = path.join(path.dirname(balatroPath), "version.dll");
-  const scriptsDir = path.join(process.env.LOCALAPPDATA ?? "", "Packages", "PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0", "LocalCache", "local-packages", "Python313", "Scripts");
-  const userBin = path.join(process.env.USERPROFILE ?? "", ".local", "bin");
-  const env = { ...process.env, PATH: `${scriptsDir};${userBin};${process.env.PATH}` };
-  const { spawn } = await import("child_process");
-  const proc = spawn("balatrobot", ["serve", "--fast", "--port", String(port), "--love-path", balatroPath, "--lovely-path", lovelyPath, "--no-shaders", "--logs-path", "logs"], { stdio: "ignore", shell: true, env });
-  await sleep(25_000);
-  return () => {
-    try { spawn("taskkill", ["/F", "/T", "/PID", String(proc.pid)], { stdio: "ignore" }); } catch {}
-  };
-}
-
-async function waitForHealth(client: BalatroBotClient) {
-  for (let i = 0; i < 30; i++) {
-    try { await client.health(); return; } catch { await sleep(2000); }
-  }
-  throw new Error("Game did not start");
-}
-
-async function runOnce(port: number, deck: string, stake: string, seed: string, model: string): Promise<RunRecord> {
-  const client = new BalatroBotClient({ port, timeout: 30000, retries: 3, retryDelay: 2000 });
-  const tools = new BalatroTools(client);
-  const startTs = Date.now();
-  const startTime = Date.now();
-
-  await waitForHealth(client);
-  const init = await tools.startRun(deck, stake, seed);
-  let actions = 0;
-
-  while (Date.now() - startTs < 120_000) {
-    const { summarized } = await tools.getGameState();
-    actions++;
-
-    globalBus.emit({
-      type: "state", gameId: seed, model, seed, ts: Date.now(),
-      state: summarized as any,
-    });
-
-    if (summarized.state === "GAME_OVER") {
-      return {
-        model, seed, deck, stake,
-        maxAnte: summarized.ante - 1,
-        finalRound: summarized.round,
-        finalMoney: summarized.money,
-        won: summarized.ante >= 8,
-        actions, durationMs: Date.now() - startTime,
-        error: null, ts: Date.now(),
-      };
-    }
-    if (summarized.state === "MENU") break;
-
-    // Naive decision
-    let action: { tool: string; args: Record<string, unknown> } = { tool: "get_game_state", args: {} };
-
-    if (summarized.state === "BLIND_SELECT") {
-      action = { tool: "select_blind", args: {} };
-    } else if (summarized.state === "SELECTING_HAND") {
-      const cards = summarized.hand_cards;
-      if (cards.length >= 2) {
-        action = { tool: "play_hand", args: { cards: cards.slice(0, Math.min(3, cards.length)).map(c => c.index) } };
-      } else if (summarized.discards_left > 0) {
-        action = { tool: "discard", args: { cards: cards.slice(0, Math.min(2, cards.length)).map(c => c.index) } };
-      }
-    } else if (summarized.state === "ROUND_EVAL") {
-      action = { tool: "cash_out", args: {} };
-    } else if (summarized.state === "SHOP") {
-      action = { tool: "next_round", args: {} };
-    }
-
-    globalBus.emit({
-      type: "decision", gameId: seed, model, seed, ts: Date.now(),
-      reasoning: "naive heuristic", action,
-      legalActions: summarized.legal_actions,
-      state: summarized as any,
-    });
-
-    try {
-      const t = action.tool;
-      if (t === "select_blind") await client.select();
-      else if (t === "play_hand") await client.play((action.args as any).cards);
-      else if (t === "discard") await client.discard((action.args as any).cards);
-      else if (t === "cash_out") await client.cashOut();
-      else if (t === "next_round") await client.nextRound();
-    } catch { /* ignore */ }
-  }
-
-  return {
-    model, seed, deck, stake,
-    maxAnte: 0, finalRound: 0, finalMoney: 0,
-    won: false, actions, durationMs: Date.now() - startTime,
-    error: "timeout", ts: Date.now(),
-  };
+/**
+ * Resolve a player (DecideFn) by name. Only the deterministic naive baseline
+ * exists today; cloud and local LLMs plug in here once the OpenAI-compatible
+ * adapter lands (next phase). The harness around it stays frozen so we measure
+ * the model, not the scaffold.
+ */
+function resolvePlayer(modelName?: string): { label: string; decide: DecideFn; model: ModelConfig | null } {
+  if (modelName === "naive") return { label: "naive", decide: naiveDecide, model: null };
+  // No arg → the .env model (BASE_URL/MODEL) if set, else the naive baseline.
+  // A name → that preset from balatro.config.json; "env" → force the .env model.
+  // resolveModelConfig throws a helpful message if the name/env isn't configured;
+  // makeOpenAiPlayer fails fast if the key env var is missing.
+  const m = modelName ? resolveModelConfig(modelName) : envModel();
+  if (!m) return { label: "naive", decide: naiveDecide, model: null };
+  return { label: m.name, decide: makeOpenAiPlayer(m), model: m };
 }
 
 async function main() {
+  const cfg = loadConfig();
   const args = process.argv.slice(2);
-  const balatroPath = args[0] || "E:\\SteamLibrary\\steamapps\\common\\Balatro\\Balatro.exe";
-  const model = args[1] || "naive-heuristic";
-  const runs = parseInt(args[2] || "3", 10);
+  const modelName = args.find(a => !a.startsWith("--"));
+  const watch = args.includes("--watch");
 
-  console.log(`Benchmark: ${model}, ${runs} runs`);
+  const { label, decide, model } = resolvePlayer(modelName);
+  if (args.includes("--no-submit")) cfg.submit = false;
+  if (watch) {
+    startRelay(cfg.relayPort);
+    console.error(`Watching live at http://localhost:${cfg.relayPort}`);
+  }
+
   const db = getDb();
-  const results: RunRecord[] = [];
+  recordMovesToDb(db); // persist every move for the per-game history pages
+  fs.mkdirSync("logs", { recursive: true });
 
-  for (let r = 0; r < runs; r++) {
-    const seed = SEEDS[r % SEEDS.length] + `-R${r}`;
-    const port = 12346;
+  console.error(`Benchmark: ${label} · ${cfg.seeds.length} seeds × ${cfg.runsPerSeed} runs/seed`);
 
-    console.log(`\nRun ${r + 1}/${runs} seed=${seed}...`);
-    const stop = await startGame(balatroPath, port);
-    try {
-      const record = await runOnce(port, "RED", "WHITE", seed, model);
-      insertRun(db, record);
-      results.push(record);
-      console.log(`  Ante ${record.maxAnte}, ${record.actions} actions${record.error ? ` ERROR: ${record.error}` : ""}`);
-    } catch (e: any) {
-      console.log(`  FAILED: ${e.message}`);
-    } finally {
-      stop();
-      await sleep(3000);
+  for (const seed of cfg.seeds) {
+    for (let k = 0; k < cfg.runsPerSeed; k++) {
+      const gameId = `${label}:${seed}:r${k}:${Date.now()}`;
+      console.error(`\n→ ${gameId}`);
+      const game = launchBalatro(cfg.basePort);
+      await sleep(cfg.startupWaitMs);
+
+      const client = new BalatroBotClient({ port: cfg.basePort, timeout: 30_000, retries: 3, retryDelay: 2000 });
+      const logStream = fs.createWriteStream(`logs/${label}-${seed}-r${k}.jsonl`, { flags: "w" });
+      try {
+        await waitForHealth(client);
+        // SAME seed across the K runs → isolates the model's own variance.
+        const rec = await runGame(decide, { client, model: label, gameId, seed, logStream });
+        insertRun(db, rec);
+        await maybeSubmit(db, rec, model, cfg);
+        console.error(
+          `  ante=${rec.maxAnte} actions=${rec.actions} illegal=${rec.illegalActions}` +
+          (rec.error ? ` ERROR: ${rec.error}` : ""),
+        );
+      } catch (e: any) {
+        console.error(`  FAILED: ${e.message}`);
+      } finally {
+        logStream.end();
+        game.stop();
+        await sleep(3000);
+      }
     }
   }
 
-  console.log("\n=== LEADERBOARD ===");
-  for (const s of modelStats(db)) {
-    console.log(`${s.model}: ${s.runs} runs, avgAnte=${s.avgAnte}, winRate=${s.winRate}%, avgActions=${s.avgActions}`);
-  }
-
-  fs.writeFileSync("bench/last-results.json", JSON.stringify(results, null, 2));
+  printLeaderboard(db);
 }
 
-main().catch(console.error);
+main().catch((e) => { console.error("Fatal:", e); process.exit(1); });

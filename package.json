@@ -1,15 +1,27 @@
 {
   "name": "balatro-mcp",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "type": "module",
   "description": "MCP server for controlling Balatro via balatrobot",
   "main": "dist/server.js",
   "types": "dist/server.d.ts",
   "scripts": {
     "build": "tsc",
-    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit",
     "dev": "tsc --watch",
-    "typecheck": "tsc --noEmit"
+    "start": "node dist/server.js",
+    "mcp": "node dist/server.js",
+    "live": "node dist/live.js",
+    "bench": "node dist/bench/run.js",
+    "leaderboard": "node dist/bench/leaderboard.js",
+    "test:adapter": "node dist/llm/test-adapter.js",
+    "test:score": "node dist/scoring/test-score.js",
+    "test": "node dist/llm/test-adapter.js && node dist/scoring/test-score.js",
+    "probe": "node dist/llm/probe.js",
+    "codehash": "node dist/scoring/print-codehash.js",
+    "serve": "node dist/serve.js",
+    "web:dev": "npm --prefix web run dev",
+    "web:build": "npm --prefix web run build"
   },
   "keywords": [
     "balatro",

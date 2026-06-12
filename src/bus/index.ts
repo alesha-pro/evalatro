@@ -17,11 +17,17 @@ export interface DecisionEvent extends GameEvent {
   action: { tool: string; args: Record<string, unknown> };
   legalActions: string[];
   state: Record<string, unknown>;
+  step?: number;
+  usage?: { tokensIn: number; tokensOut: number; costUsd?: number };
+  /** Set when the game rejected the move (illegal / unknown tool / bad args). */
+  illegal?: string;
 }
 
 export interface ResultEvent extends GameEvent {
   type: "result";
-  outcome: "ante_cleared" | "game_over";
+  /** won | lost | cap | stuck | error */
+  outcome: string;
+  won?: boolean;
   finalAnte: number;
   finalRound: number;
   dollars: number;

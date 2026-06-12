@@ -7,6 +7,13 @@ dist/
 .env.local
 *.key
 
+# user-specific config (copy balatro.config.example.json → balatro.config.json)
+balatro.config.json
+
+# web app build & deps (also covered by dist/ + node_modules/ — explicit for clarity)
+web/dist/
+web/node_modules/
+
 # generated data
 logs/
 bench/*.db
