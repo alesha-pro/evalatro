@@ -13,7 +13,7 @@
   "maxDecisionsPerGame": 0,
   "startupWaitMs": 25000,
   "submit": true,
-  "submitUrl": "https://evalatro-leaderboard.anonymousmaharaj.workers.dev",
+  "submitUrl": "https://evalatro.dev",
   "models": [
     {
       "name": "gpt-4o-mini",

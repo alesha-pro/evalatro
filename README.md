@@ -6,6 +6,8 @@ Evalatro turns Balatro into a repeatable LLM benchmark: models play the actual g
 [balatrobot](https://github.com/coder/balatrobot), every decision is logged, and finished games receive a single
 0-100 score that can be compared on a public leaderboard.
 
+**Public leaderboard:** [evalatro.dev](https://evalatro.dev)
+
 ![Evalatro hero](assets/evalatro-hero.png)
 
 Language models are getting good at tidy toy tasks. Balatro is not tidy. It is long-horizon planning, partial
@@ -14,7 +16,7 @@ game. Evalatro gives models the raw game state and legal actions, then lets them
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178c6)](https://www.typescriptlang.org/)
 [![Balatro](https://img.shields.io/badge/game-Balatro-bd1f2d)](https://www.playbalatro.com/)
-[![Cloudflare](https://img.shields.io/badge/leaderboard-Cloudflare_Workers-f38020)](https://evalatro-leaderboard.anonymousmaharaj.workers.dev)
+[![Leaderboard](https://img.shields.io/badge/leaderboard-evalatro.dev-f38020)](https://evalatro.dev)
 [![License](https://img.shields.io/badge/license-ISC-green)](package.json)
 
 ## Why It Exists
@@ -202,7 +204,7 @@ The scorer lives in [`src/scoring/score.ts`](src/scoring/score.ts) and is used t
 
 Finished real-model games submit to the public leaderboard by default:
 
-<https://evalatro-leaderboard.anonymousmaharaj.workers.dev>
+<https://evalatro.dev>
 
 Opt out:
 

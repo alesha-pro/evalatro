@@ -218,7 +218,7 @@ test("ensureLocalFiles writes ignored config files without secrets", () => {
   assert.deepEqual(result.created.sort(), [".env", "balatro.config.json"]);
   const config = JSON.parse(fs.readFileSync(path.join(dir, "balatro.config.json"), "utf8"));
   assert.equal(config.submit, true);
-  assert.equal(config.submitUrl, "https://evalatro-leaderboard.anonymousmaharaj.workers.dev");
+  assert.equal(config.submitUrl, "https://evalatro.dev");
   assert.deepEqual(config.models, []);
   assert.equal(config.launchMode, "spawn");
 

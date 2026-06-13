@@ -349,7 +349,7 @@ export function ensureLocalFiles({ repoRoot, write, layout }) {
         maxDecisionsPerGame: 0,
         startupWaitMs: 25000,
         submit: true,
-        submitUrl: "https://evalatro-leaderboard.anonymousmaharaj.workers.dev",
+        submitUrl: "https://evalatro.dev",
         models: [],
       };
       fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
