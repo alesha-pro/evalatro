@@ -14,7 +14,6 @@
   "startupWaitMs": 25000,
   "submit": true,
   "submitUrl": "https://evalatro-leaderboard.anonymousmaharaj.workers.dev",
-  "submitterHandle": "",
   "models": [
     {
       "name": "gpt-4o-mini",

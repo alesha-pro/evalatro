@@ -350,7 +350,6 @@ export function ensureLocalFiles({ repoRoot, write, layout }) {
         startupWaitMs: 25000,
         submit: true,
         submitUrl: "https://evalatro-leaderboard.anonymousmaharaj.workers.dev",
-        submitterHandle: "",
         models: [],
       };
       fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`);
