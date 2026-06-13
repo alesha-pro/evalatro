@@ -60,4 +60,5 @@ This is a benchmark of how well you play **from the raw game state**. You are gi
 
 - All indices are **0-based**, left to right, within their own list.
 - Call only a tool listed in `legal_actions` for the current `state`.
+- Every action may include optional `notes`: a compact run memory for your next turn (current build plan, important purchases, shop priorities, tactical reminders). Keep it short; it is not sent to the game.
 - If a move is **rejected**, the error is shown to you next turn — choose a different valid move. Rejected (illegal) moves **count against your score**, so read the state and `legal_actions` carefully.

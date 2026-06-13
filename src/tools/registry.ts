@@ -24,6 +24,10 @@ export interface ToolDef<S extends z.ZodObject<any> = z.ZodObject<any>> {
 }
 
 const def = <S extends z.ZodObject<any>>(d: ToolDef<S>): ToolDef => d as unknown as ToolDef;
+const actionNotes = z.string().max(1200).optional().describe(
+  "Optional compact run memory for yourself next turn: current build plan, important purchases, priorities, and tactical reminders. This is not sent to the game.",
+);
+const actionSchema = <S extends z.ZodRawShape>(shape: S) => z.object({ ...shape, notes: actionNotes });
 
 export const TOOLS: ToolDef[] = [
   def({
@@ -50,7 +54,7 @@ export const TOOLS: ToolDef[] = [
     name: "play_hand",
     description: "Play cards from your hand (1-5 cards, by 0-based left-to-right index). The best poker hand scores the most chips.",
     kind: "action",
-    schema: z.object({
+    schema: actionSchema({
       cards: z.array(z.number().int()).min(1).max(5).describe("0-based indices of cards to play"),
     }),
     states: ["SELECTING_HAND"],
@@ -60,7 +64,7 @@ export const TOOLS: ToolDef[] = [
     name: "discard",
     description: "Discard cards from your hand to draw replacements (costs one discard).",
     kind: "action",
-    schema: z.object({
+    schema: actionSchema({
       cards: z.array(z.number().int()).min(1).max(5).describe("0-based indices of cards to discard"),
     }),
     states: ["SELECTING_HAND"],
@@ -70,7 +74,7 @@ export const TOOLS: ToolDef[] = [
     name: "select_blind",
     description: "Select the current blind and begin the round.",
     kind: "action",
-    schema: z.object({}),
+    schema: actionSchema({}),
     states: ["BLIND_SELECT"],
     execute: (c) => c.select(),
   }),
@@ -78,7 +82,7 @@ export const TOOLS: ToolDef[] = [
     name: "skip_blind",
     description: "Skip the current small or big blind (cannot skip a boss blind) to claim its tag.",
     kind: "action",
-    schema: z.object({}),
+    schema: actionSchema({}),
     states: ["BLIND_SELECT"],
     execute: (c) => c.skip(),
   }),
@@ -86,7 +90,7 @@ export const TOOLS: ToolDef[] = [
     name: "shop_buy",
     description: "Buy a card, voucher, or pack from the shop by index.",
     kind: "action",
-    schema: z.object({
+    schema: actionSchema({
       card: z.number().int().optional().describe("Index of shop card to buy"),
       voucher: z.number().int().optional().describe("Index of voucher to buy"),
       pack: z.number().int().optional().describe("Index of booster pack to buy"),
@@ -98,7 +102,7 @@ export const TOOLS: ToolDef[] = [
     name: "shop_sell",
     description: "Sell a joker or consumable for money.",
     kind: "action",
-    schema: z.object({
+    schema: actionSchema({
       joker: z.number().int().optional().describe("Index of joker to sell"),
       consumable: z.number().int().optional().describe("Index of consumable to sell"),
     }),
@@ -109,7 +113,7 @@ export const TOOLS: ToolDef[] = [
     name: "shop_reroll",
     description: "Reroll the shop's card offerings (costs money).",
     kind: "action",
-    schema: z.object({}),
+    schema: actionSchema({}),
     states: ["SHOP"],
     execute: (c) => c.reroll(),
   }),
@@ -117,7 +121,7 @@ export const TOOLS: ToolDef[] = [
     name: "cash_out",
     description: "Cash out the round's rewards and proceed to the shop.",
     kind: "action",
-    schema: z.object({}),
+    schema: actionSchema({}),
     states: ["ROUND_EVAL"],
     execute: (c) => c.cashOut(),
   }),
@@ -125,7 +129,7 @@ export const TOOLS: ToolDef[] = [
     name: "next_round",
     description: "Leave the shop and advance to the next blind selection.",
     kind: "action",
-    schema: z.object({}),
+    schema: actionSchema({}),
     states: ["SHOP"],
     execute: (c) => c.nextRound(),
   }),
@@ -133,7 +137,7 @@ export const TOOLS: ToolDef[] = [
     name: "use_consumable",
     description: "Use a consumable card (tarot, planet, or spectral), optionally targeting cards.",
     kind: "action",
-    schema: z.object({
+    schema: actionSchema({
       consumable: z.number().int().describe("0-based index of consumable to use"),
       cards: z.array(z.number().int()).optional().describe("Target card indices, for consumables that need them"),
     }),
@@ -146,7 +150,7 @@ export const TOOLS: ToolDef[] = [
       "Tarot/Spectral cards that act on your cards ALSO need `targets` = indices of cards in state.hand_cards " +
       "(the pack card's effect says how many, e.g. 1-2). To skip the pack, pass skip:true (not skip:false).",
     kind: "action",
-    schema: z.object({
+    schema: actionSchema({
       card: z.number().int().optional().describe("Index into state.pack.cards to pick"),
       targets: z.array(z.number().int()).optional().describe("Hand-card indices to target, required by tarot/spectral cards that modify your cards"),
       skip: z.boolean().optional().describe("Pass true to skip the pack without picking"),
@@ -158,7 +162,7 @@ export const TOOLS: ToolDef[] = [
     name: "rearrange_jokers",
     description: "Reorder your jokers (left-to-right order affects scoring).",
     kind: "action",
-    schema: z.object({
+    schema: actionSchema({
       order: z.array(z.number().int()).describe("New joker order as a permutation of current indices"),
     }),
     states: ["SELECTING_HAND", "SHOP"],

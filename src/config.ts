@@ -98,6 +98,7 @@ export interface BenchConfig {
 }
 
 const CONFIG_PATH = path.resolve(process.env.BALATRO_CONFIG || "balatro.config.json");
+const DEFAULT_SUBMIT_URL = "https://evalatro-leaderboard.anonymousmaharaj.workers.dev";
 
 const defaultBalatroPath =
   process.platform === "darwin"
@@ -150,7 +151,7 @@ const DEFAULTS: BenchConfig = {
   maxConsecutiveIllegal: 10,
   startupWaitMs: 25_000,
   submit: true,
-  submitUrl: "",
+  submitUrl: DEFAULT_SUBMIT_URL,
   submitterHandle: "",
   liveIngestUrl: "",
   liveIngestKey: "",

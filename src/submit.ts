@@ -47,7 +47,8 @@ export function buildSubmission(
 }
 
 export async function submitRun(baseUrl: string, submission: unknown): Promise<{ ok: boolean; status: number; body: any }> {
-  const url = baseUrl.replace(/\/+$/, "") + "/api/runs";
+  const normalized = baseUrl.replace(/\/+$/, "");
+  const url = normalized.endsWith("/api/runs") ? normalized : normalized + "/api/runs";
   const res = await request(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },

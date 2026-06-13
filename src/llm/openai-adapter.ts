@@ -11,6 +11,7 @@ const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 // ── Shapes of the OpenAI-compatible chat/completions response ──
 export interface ChatResponse {
   choices?: {
+    finish_reason?: string | null;
     message?: {
       content?: string | null;
       reasoning_content?: string | null;
@@ -61,6 +62,13 @@ function estimateCost(cfg: ModelConfig, usage?: ChatResponse["usage"]): number {
   return (inTok / 1e6) * (cfg.pricePerMTokIn ?? 0) + (outTok / 1e6) * (cfg.pricePerMTokOut ?? 0);
 }
 
+function splitToolNotes(args: Record<string, unknown>): { args: Record<string, unknown>; notes?: string } {
+  const notes = typeof args.notes === "string" ? args.notes.trim() : "";
+  if (!("notes" in args)) return { args };
+  const { notes: _notes, ...cleanArgs } = args;
+  return { args: cleanArgs, notes: notes || undefined };
+}
+
 /**
  * Pure response → Decision mapping. This is the unit-testable seam: it takes a
  * raw chat response (no network) and produces the move.
@@ -76,7 +84,8 @@ export function parseChatResponse(cfg: ModelConfig, json: ChatResponse): Decisio
     tokensOut: json.usage?.completion_tokens ?? 0,
     costUsd: estimateCost(cfg, json.usage),
   };
-  const msg = json.choices?.[0]?.message;
+  const choice = json.choices?.[0];
+  const msg = choice?.message;
   if (!msg) return { tool: "no_response", args: {}, reasoning: "model returned no message", usage };
   // Reasoning models put their chain-of-thought in reasoning_content — fall back to it.
   const think = (msg.content || msg.reasoning_content || "").trim();
@@ -84,7 +93,11 @@ export function parseChatResponse(cfg: ModelConfig, json: ChatResponse): Decisio
   if (cfg.mode === "tools") {
     const call = msg.tool_calls?.[0];
     if (!call) {
-      const why = think || "model produced no tool call (raise MODEL_MAX_TOKENS if it was cut off)";
+      const why = choice?.finish_reason === "length"
+        ? `model produced no tool call before finish_reason=length (raise MODEL_MAX_TOKENS or reduce prompt): ${think}`.trim()
+        : think
+          ? `model returned text without a tool call: ${think}`
+          : `model produced no tool call (finish_reason=${choice?.finish_reason ?? "unknown"})`;
       return { tool: "no_tool_call", args: {}, reasoning: why, notes: think || undefined, usage };
     }
     let args: Record<string, unknown> = {};
@@ -93,7 +106,8 @@ export function parseChatResponse(cfg: ModelConfig, json: ChatResponse): Decisio
     } catch {
       return { tool: "bad_tool_args", args: {}, reasoning: `unparseable tool args: ${call.function.arguments}`, usage };
     }
-    return { tool: call.function.name, args, reasoning: think, notes: think || undefined, usage };
+    const split = splitToolNotes(args);
+    return { tool: call.function.name, args: split.args, reasoning: think, notes: split.notes ?? (think || undefined), usage };
   }
 
   // mode === "json"
@@ -111,6 +125,44 @@ export function parseChatResponse(cfg: ModelConfig, json: ChatResponse): Decisio
     notes: typeof parsed.notes === "string" ? parsed.notes : (reasoning || undefined),
     usage,
   };
+}
+
+export function buildChatPayload(
+  cfg: ModelConfig,
+  systemContent: string,
+  state: SummarizedState,
+  ctx: DecideCtx,
+  opts: { toolChoice?: "auto" | "required" } = {},
+): Record<string, unknown> {
+  const errBlock = ctx.lastError
+    ? `⚠ Your previous action was REJECTED by the game — do NOT repeat it:\n` +
+      `  action: ${ctx.lastAction ? ctx.lastAction.tool + " " + JSON.stringify(ctx.lastAction.args) : "(unknown)"}\n` +
+      `  error: ${ctx.lastError}\n` +
+      `Pick a DIFFERENT, valid action that fixes this.\n\n`
+    : "";
+  const userContent =
+    errBlock +
+    `Current game state:\n${JSON.stringify(state)}\n\n` +
+    `Legal actions now: ${ctx.legalActions.join(", ")}\n` +
+    `Your notes from last turn: ${ctx.notes ?? "(none)"}\n\n` +
+    `Make your move.`;
+
+  const payload: any = {
+    model: cfg.model,
+    messages: [
+      { role: "system", content: systemContent },
+      { role: "user", content: userContent },
+    ],
+    temperature: cfg.temperature ?? 0.3,
+    max_tokens: cfg.maxTokens ?? 2048,
+  };
+  if (cfg.mode === "tools") {
+    payload.tools = openAiTools();
+    payload.tool_choice = opts.toolChoice ?? "auto";
+  } else {
+    payload.response_format = { type: "json_object" };
+  }
+  return payload;
 }
 
 async function callChat(
@@ -167,47 +219,39 @@ async function callChat(
 export function makeOpenAiPlayer(cfg: ModelConfig): DecideFn {
   const strategy = loadStrategyPrompt();
   const apiKey = resolveApiKey(cfg); // throws early if apiKeyEnv is set but missing
-  const tools = openAiTools();
   const endpoint = `${cfg.baseURL.replace(/\/+$/, "")}/chat/completions`;
 
   const systemContent =
     cfg.mode === "tools"
-      ? `${strategy}\n\n## How to respond\nEach turn, call exactly ONE tool to make your move. Reason briefly in your message text, then make the call. Only use actions that are legal in the current state.`
+      ? `${strategy}\n\n## How to respond\nEach turn, call exactly ONE tool to make your move. Reason briefly in your message text, then make the call. Only use actions that are legal in the current state. Every action accepts an optional \`notes\` string. Use \`notes\` as compact run memory for your next turn: current build plan, important purchases, shop priorities, and tactical reminders. Keep notes under 1200 characters; do not put private API keys or irrelevant history there.`
       : `${strategy}\n\n## How to respond\nReply with ONLY a JSON object, nothing around it:\n` +
         `{"reasoning": "<short why>", "tool": "<tool name>", "args": { ... }, "notes": "<plan to remember next turn>"}\n\n` +
         `Available tools:\n${toolListForPrompt()}\n\nCard indices are 0-based, left to right. Only use actions legal in the current state.`;
 
   return async (state: SummarizedState, ctx: DecideCtx): Promise<Decision> => {
-    const errBlock = ctx.lastError
-      ? `⚠ Your previous action was REJECTED by the game — do NOT repeat it:\n` +
-        `  action: ${ctx.lastAction ? ctx.lastAction.tool + " " + JSON.stringify(ctx.lastAction.args) : "(unknown)"}\n` +
-        `  error: ${ctx.lastError}\n` +
-        `Pick a DIFFERENT, valid action that fixes this.\n\n`
-      : "";
-    const userContent =
-      errBlock +
-      `Current game state:\n${JSON.stringify(state)}\n\n` +
-      `Legal actions now: ${ctx.legalActions.join(", ")}\n` +
-      `Your notes from last turn: ${ctx.notes ?? "(none)"}\n\n` +
-      `Make your move.`;
-
-    const payload: any = {
-      model: cfg.model,
-      messages: [
-        { role: "system", content: systemContent },
-        { role: "user", content: userContent },
-      ],
-      temperature: cfg.temperature ?? 0.3,
-      max_tokens: cfg.maxTokens ?? 2048,
-    };
-    if (cfg.mode === "tools") {
-      payload.tools = tools;
-      payload.tool_choice = "auto";
-    } else {
-      payload.response_format = { type: "json_object" };
-    }
-
+    const payload = buildChatPayload(cfg, systemContent, state, ctx);
     const json = await callChat(endpoint, apiKey, cfg.extraHeaders, payload);
-    return parseChatResponse(cfg, json);
+    const decision = parseChatResponse(cfg, json);
+    if (cfg.mode !== "tools" || decision.tool !== "no_tool_call") return decision;
+
+    const retryCtx: DecideCtx = {
+      ...ctx,
+      lastError: "Your previous response was text-only. Reason briefly if needed, but you must also call exactly one valid tool.",
+      lastAction: undefined,
+    };
+    const retryPayload = buildChatPayload(cfg, systemContent, state, retryCtx);
+    const retryJson = await callChat(endpoint, apiKey, cfg.extraHeaders, retryPayload, 0);
+    const retry = parseChatResponse(cfg, retryJson);
+    if (retry.reasoning) {
+      retry.reasoning = `${decision.reasoning}\n\nRetry after missing tool call:\n${retry.reasoning}`;
+    } else {
+      retry.reasoning = `${decision.reasoning}\n\nRetry after missing tool call returned ${retry.tool}.`;
+    }
+    retry.usage = {
+      tokensIn: (decision.usage?.tokensIn ?? 0) + (retry.usage?.tokensIn ?? 0),
+      tokensOut: (decision.usage?.tokensOut ?? 0) + (retry.usage?.tokensOut ?? 0),
+      costUsd: (decision.usage?.costUsd ?? 0) + (retry.usage?.costUsd ?? 0),
+    };
+    return retry;
   };
 }

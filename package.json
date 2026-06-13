@@ -17,13 +17,15 @@
     "leaderboard": "node dist/bench/leaderboard.js",
     "test:adapter": "node dist/llm/test-adapter.js",
     "test:score": "node dist/scoring/test-score.js",
-    "test": "node dist/llm/test-adapter.js && node dist/scoring/test-score.js",
+    "test:setup": "node scripts/setup-local.test.mjs",
+    "test": "node scripts/setup-local.test.mjs && node dist/llm/test-adapter.js && node dist/scoring/test-score.js",
     "probe": "node dist/llm/probe.js",
     "codehash": "node dist/scoring/print-codehash.js",
     "serve": "node dist/serve.js",
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
-    "setup": "npm --prefix web install && npm run build && npm run web:build"
+    "setup": "npm --prefix web install && npm run build && npm run web:build",
+    "setup:local": "node scripts/setup-local.mjs"
   },
   "keywords": [
     "balatro",

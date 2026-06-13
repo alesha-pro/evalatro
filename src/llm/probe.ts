@@ -33,7 +33,7 @@ const FAKE: SummarizedState = {
     { name: "Pair", level: 1, chips: 10, mult: 2 },
     { name: "High Card", level: 1, chips: 5, mult: 1 },
   ],
-  legal_actions: ["play", "discard", "rearrange_hand", "use"],
+  legal_actions: ["play_hand", "discard", "use_consumable", "rearrange_jokers"],
 };
 
 async function main() {
@@ -43,7 +43,7 @@ async function main() {
   const decide = makeOpenAiPlayer(m);
 
   const t0 = Date.now();
-  const d = await decide(FAKE, { step: 0, legalActions: ["play", "discard", "use"], notes: undefined });
+  const d = await decide(FAKE, { step: 0, legalActions: FAKE.legal_actions, notes: undefined });
   console.error(
     `latency ${Date.now() - t0}ms · tokens in/out ${d.usage?.tokensIn}/${d.usage?.tokensOut} · $${d.usage?.costUsd ?? 0}`,
   );

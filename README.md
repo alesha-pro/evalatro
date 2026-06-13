@@ -27,10 +27,67 @@ Models play the **real** game, so you assemble a small stack once. Top to bottom
 | 5 | **balatrobot CLI** | launches Balatro with the mod **and** serves the API on `:12346` |
 | 6 | **this repo** | the LLM runner + local viewer that drive `:12346` |
 
-> 🤖 **Don't want to do this by hand?** Hand [`SETUP_WITH_AI.md`](SETUP_WITH_AI.md) to an AI agent with shell
-> access — *"read this and set everything up"* — it detects your OS and installs/configures 1–6 for you.
+> 🤖 **Fast path:** install Balatro from Steam, then run the local setup helper:
+>
+> ```bash
+> npm run setup:local -- --check
+> npm run setup:local -- --install
+> npm run live -- naive
+> ```
+>
+> It detects your OS, installs the repo/CLI pieces, creates local ignored config files, installs Steamodded,
+> installs the balatrobot mod, and installs Lovely when the Balatro game folder exists. It does **not** install
+> Balatro, log into Steam, download pirated game files, or write API keys. For agent-assisted setup, hand
+> [`SETUP_WITH_AI.md`](SETUP_WITH_AI.md) to an AI agent with shell access.
 
-### 1 · Runner + balatrobot CLI (all platforms)
+### 1 · Automated local setup
+
+First install **Balatro through Steam**. Then, from this repo:
+
+```bash
+npm run setup:local -- --check     # print detected paths and missing pieces
+npm run setup:local -- --install   # install CLI, repo deps, local configs, mods, and Lovely
+npm run live -- naive              # smoke test: deterministic baseline, no tokens spent
+```
+
+`--install` intentionally stops if Balatro is not installed yet:
+
+```text
+Cannot continue:
+- Balatro is not installed at ...
+```
+
+Install Balatro through Steam first. On Windows, the helper reads Steam's `libraryfolders.vdf` and tries every
+Steam library it can find. If detection still misses the game, pass `--game-path "/path/to/Balatro"`.
+
+Useful options:
+
+```bash
+npm run setup:local -- --install --game-path "/path/to/Balatro"
+npm run setup:local -- --install-mods
+npm run setup:local -- --install-lovely
+npm run setup:local -- --uninstall
+npm run setup:local -- --dry-run
+```
+
+`--uninstall` removes the helper-installed pieces: `balatrobot` CLI, local repo outputs (`node_modules`, `dist`,
+`.env`, `balatro.config.json`, logs/bench data), Steamodded, balatrobot mod, Lovely files, and Lovely runtime logs.
+It does **not** uninstall Balatro itself.
+
+If the smoke test prints `Game over (...)`, the game, Lovely, Steamodded, balatrobot, and this repo are wired
+together. Then add a model to `.env`:
+
+```ini
+BASE_URL=https://openrouter.ai/api/v1
+BASE_KEY=sk-...
+MODEL=openai/gpt-4o-mini
+MODEL_MODE=tools
+```
+
+Run `npm run live` for a real model game. The local viewer is at <http://localhost:3001> while `live`,
+`bench --watch`, or `serve` is running.
+
+### 2 · Manual setup: runner + balatrobot CLI
 
 ```bash
 # balatrobot CLI: install uv (https://docs.astral.sh/uv), then install the CLI ON your PATH —
@@ -44,16 +101,16 @@ cp balatro.config.example.json balatro.config.json
 cp .env.example .env           # set BASE_URL / BASE_KEY / MODEL (keys stay on your machine)
 ```
 
-### 2 · Game-side mods — pick your platform
+### 3 · Manual setup: game-side mods
 
 <details>
 <summary><b>🪟 Windows</b> — verified</summary>
 
 1. **Lovely** — from the [releases](https://github.com/ethangreen-dev/lovely-injector/releases), put `version.dll` next to `Balatro.exe` in `…\steamapps\common\Balatro\`.
-2. **Steamodded** — place it in `%AppData%\Balatro\Mods\Steamodded\`.
+2. **Steamodded** — clone or download it into `%AppData%\Balatro\Mods\smods\`.
 3. **balatrobot mod** — place it in `%AppData%\Balatro\Mods\balatrobot\`.
 4. Launch Balatro once via Steam — the main menu should show a **Mods** button (that means Lovely is injecting). Close it.
-5. Keep `"launchMode": "spawn"` in `balatro.config.json`. Only if balatrobot can't auto-detect a non-default Steam library, set `"balatroPath": "D:\\…\\Balatro\\Balatro.exe"`.
+5. Keep `"launchMode": "spawn"` in `balatro.config.json`. The setup helper tries all Steam libraries on Windows; only set `"balatroPath": "D:\\…\\Balatro\\Balatro.exe"` if auto-detection fails.
 
 </details>
 
@@ -61,7 +118,7 @@ cp .env.example .env           # set BASE_URL / BASE_KEY / MODEL (keys stay on y
 <summary><b>🍎 macOS</b> — verified</summary>
 
 1. **Lovely (macOS build)** — put `liblovely.dylib` and `run_lovely_macos.sh` in `…/steamapps/common/Balatro/`. If Gatekeeper blocks them: `xattr -rd com.apple.quarantine liblovely.dylib run_lovely_macos.sh`.
-2. **Steamodded** — `~/Library/Application Support/Balatro/Mods/Steamodded/`.
+2. **Steamodded** — `~/Library/Application Support/Balatro/Mods/smods/`.
 3. **balatrobot mod** — `~/Library/Application Support/Balatro/Mods/balatrobot/`.
 4. Keep `"launchMode": "spawn"`. The runner defaults `balatroPath` to `…/Balatro.app/Contents/MacOS/love` and derives `liblovely.dylib` next to the app — if your binary or dylib live elsewhere, set `balatroPath` / `lovelyPath` explicitly.
 
@@ -72,8 +129,9 @@ cp .env.example .env           # set BASE_URL / BASE_KEY / MODEL (keys stay on y
 
 This repo does **not** launch Balatro under Proton; you start the game yourself and the runner *attaches*.
 
-1. Lovely + mods live **inside the Proton prefix**. Use the **Windows** Lovely `version.dll`, and put `Steamodded/` and `balatrobot/` under
-   `~/.local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods/`.
+1. Lovely + mods live **inside the Proton prefix**. Use the **Windows** Lovely `version.dll`, and put the mod folders under
+   `~/.local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods/`
+   (`smods/` for Steamodded, `balatrobot/` for the bot mod).
 2. Add Lovely to Steam **Launch Options** for Balatro (see the [balatrobot install docs](https://coder.github.io/balatrobot/installation/)).
 3. Launch Balatro through Steam with the mods loaded — the API comes up on `:12346`.
 4. Set `"launchMode": "attach"` in `balatro.config.json` — the runner connects instead of spawning.
@@ -83,7 +141,7 @@ This repo does **not** launch Balatro under Proton; you start the game yourself 
 > Versions the upstreams expect: **Balatro 1.0.1+, Lovely 0.8.0+, Steamodded 1.0.0-beta-1221a+, uv 0.9.21+**. The
 > [balatrobot installation guide](https://coder.github.io/balatrobot/installation/) is the source of truth for the game-side stack.
 
-### 3 · Point it at a model
+### 4 · Point it at a model
 
 `.env` (gitignored — keys never leave your machine):
 
@@ -94,7 +152,7 @@ MODEL=deepseek-v4-flash
 MODEL_MODE=tools          # "tools" = function-calling; "json" = JSON-in-content (weak local models)
 ```
 
-### 4 · Run
+### 5 · Run
 
 ```bash
 npm run live -- naive       # smoke test: deterministic baseline, no tokens spent
@@ -133,8 +191,10 @@ you a local score) and the server (which **recomputes** it authoritatively from 
 
 ## Submitting & privacy
 
-When a game finishes, the runner POSTs the full run to the leaderboard backend (`submitUrl` in config, or the
-`SUBMIT_URL` env var). This is **opt-out**:
+When a game finishes, the runner POSTs the full run to the public Evalatro leaderboard by default:
+<https://evalatro-leaderboard.anonymousmaharaj.workers.dev>. Override it with `submitUrl` in config or the
+`SUBMIT_URL` env var. `SUBMIT_URL` may be either the site base URL or the full `/api/runs` endpoint.
+This is **opt-out**:
 
 ```bash
 SUBMIT=false npm run bench        # or:
@@ -174,9 +234,9 @@ npm run serve
 Pages: **Leaderboard** (ranked by score), **Model** (a model's games + score distribution), **Game** (full
 replay with the schematic board + chain of thought), **Live** (SSE; `/live?demo=1` for a sample), **About**.
 
-**Hosting the central site:** deploy the Node server with its own DB (`BENCH_DB=/data/bench.db`). To accept live
-streaming on the public `/ingest`, set `INGEST_KEY` and have the host runner send it via `liveIngestKey`/
-`liveIngestUrl`. Community runners submit at game-end only.
+**Hosting the central site:** the production leaderboard lives in the separate `evalatro-leaderboard` Cloudflare
+Worker + D1 project. The local Node server remains for development and local live viewing; community runners
+submit finished games to the production `/api/runs` endpoint.
 
 ---
 

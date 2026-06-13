@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to balatro.config.json and edit. QUICK PATH: set BASE_URL / BASE_KEY / MODEL in .env and run with no model argument. API keys come ONLY from env vars named by each model's apiKeyEnv — never put keys in this file. Submission: set submitUrl (or the SUBMIT_URL env var) to a leaderboard backend; set SUBMIT=false or pass --no-submit to opt out entirely.",
+  "_comment": "Copy to balatro.config.json and edit. QUICK PATH: set BASE_URL / BASE_KEY / MODEL in .env and run with no model argument. API keys come ONLY from env vars named by each model's apiKeyEnv — never put keys in this file. Submission goes to the public Evalatro leaderboard by default; set SUBMIT=false or pass --no-submit to opt out entirely.",
   "_launchMode_comment": "spawn starts Balatro through balatrobot from PATH. attach connects to an already-running balatrobot HTTP server; use attach for Linux Steam+Proton (experimental, untested).",
   "launchMode": "spawn",
   "balatroPath": "",
@@ -13,7 +13,7 @@
   "maxDecisionsPerGame": 0,
   "startupWaitMs": 25000,
   "submit": true,
-  "submitUrl": "",
+  "submitUrl": "https://evalatro-leaderboard.anonymousmaharaj.workers.dev",
   "submitterHandle": "",
   "models": [
     {
