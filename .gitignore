@@ -14,6 +14,10 @@ balatro.config.json
 web/dist/
 web/node_modules/
 
+# docs & planning (not tracked)
+docs/
+PLAN.md
+
 # generated data
 logs/
 bench/*.db
