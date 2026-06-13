@@ -14,21 +14,78 @@ cards, no comprehension aids. It's told the rules and the tools; the rest is on 
 
 ---
 
-## Quick start
+## Setup
 
-**Prerequisites:** Balatro (Steam) + [Lovely](https://github.com/ethangreen-dev/lovely-injector) +
-[Steamodded](https://github.com/Steamodded/smods) + [balatrobot](https://github.com/coder/balatrobot) installed and on PATH.
-Then:
+Models play the **real** game, so you assemble a small stack once. Top to bottom:
+
+| # | Piece | What it does |
+|---|-------|--------------|
+| 1 | **[Balatro](https://store.steampowered.com/app/2379780/Balatro/)** (Steam) | the game itself |
+| 2 | **[Lovely](https://github.com/ethangreen-dev/lovely-injector)** | native injector that lets Lua mods load |
+| 3 | **[Steamodded](https://github.com/Steamodded/smods)** | the mod framework Lovely loads |
+| 4 | **[balatrobot](https://github.com/coder/balatrobot) mod** | exposes the running game over an HTTP/JSON-RPC API |
+| 5 | **balatrobot CLI** | launches Balatro with the mod **and** serves the API on `:12346` |
+| 6 | **this repo** | the LLM runner + local viewer that drive `:12346` |
+
+> 🤖 **Don't want to do this by hand?** Hand [`SETUP_WITH_AI.md`](SETUP_WITH_AI.md) to an AI agent with shell
+> access — *"read this and set everything up"* — it detects your OS and installs/configures 1–6 for you.
+
+### 1 · Runner + balatrobot CLI (all platforms)
 
 ```bash
-npm install
-npm run setup        # builds the runner + the local web viewer (also installs web deps)
+# balatrobot CLI: install uv (https://docs.astral.sh/uv), then install the CLI ON your PATH —
+uv tool install balatrobot     # NOTE: `uvx balatrobot` alone is ephemeral; the runner calls `balatrobot` from PATH
+balatrobot --help              # should print usage
 
-cp balatro.config.example.json balatro.config.json   # set launchMode / paths if needed
-cp .env.example .env                                  # set your model + (optional) SUBMIT_URL
+# this repo:
+npm install
+npm run setup                  # builds the runner + the local web viewer (also installs web deps)
+cp balatro.config.example.json balatro.config.json
+cp .env.example .env           # set BASE_URL / BASE_KEY / MODEL (keys stay on your machine)
 ```
 
-Point it at a model via `.env` (gitignored — keys never leave your machine):
+### 2 · Game-side mods — pick your platform
+
+<details>
+<summary><b>🪟 Windows</b> — verified</summary>
+
+1. **Lovely** — from the [releases](https://github.com/ethangreen-dev/lovely-injector/releases), put `version.dll` next to `Balatro.exe` in `…\steamapps\common\Balatro\`.
+2. **Steamodded** — place it in `%AppData%\Balatro\Mods\Steamodded\`.
+3. **balatrobot mod** — place it in `%AppData%\Balatro\Mods\balatrobot\`.
+4. Launch Balatro once via Steam — the main menu should show a **Mods** button (that means Lovely is injecting). Close it.
+5. Keep `"launchMode": "spawn"` in `balatro.config.json`. Only if balatrobot can't auto-detect a non-default Steam library, set `"balatroPath": "D:\\…\\Balatro\\Balatro.exe"`.
+
+</details>
+
+<details>
+<summary><b>🍎 macOS</b> — verified</summary>
+
+1. **Lovely (macOS build)** — put `liblovely.dylib` and `run_lovely_macos.sh` in `…/steamapps/common/Balatro/`. If Gatekeeper blocks them: `xattr -rd com.apple.quarantine liblovely.dylib run_lovely_macos.sh`.
+2. **Steamodded** — `~/Library/Application Support/Balatro/Mods/Steamodded/`.
+3. **balatrobot mod** — `~/Library/Application Support/Balatro/Mods/balatrobot/`.
+4. Keep `"launchMode": "spawn"`. The runner defaults `balatroPath` to `…/Balatro.app/Contents/MacOS/love` and derives `liblovely.dylib` next to the app — if your binary or dylib live elsewhere, set `balatroPath` / `lovelyPath` explicitly.
+
+</details>
+
+<details>
+<summary><b>🐧 Linux — Steam + Proton</b> — experimental, untested</summary>
+
+This repo does **not** launch Balatro under Proton; you start the game yourself and the runner *attaches*.
+
+1. Lovely + mods live **inside the Proton prefix**. Use the **Windows** Lovely `version.dll`, and put `Steamodded/` and `balatrobot/` under
+   `~/.local/share/Steam/steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods/`.
+2. Add Lovely to Steam **Launch Options** for Balatro (see the [balatrobot install docs](https://coder.github.io/balatrobot/installation/)).
+3. Launch Balatro through Steam with the mods loaded — the API comes up on `:12346`.
+4. Set `"launchMode": "attach"` in `balatro.config.json` — the runner connects instead of spawning.
+
+</details>
+
+> Versions the upstreams expect: **Balatro 1.0.1+, Lovely 0.8.0+, Steamodded 1.0.0-beta-1221a+, uv 0.9.21+**. The
+> [balatrobot installation guide](https://coder.github.io/balatrobot/installation/) is the source of truth for the game-side stack.
+
+### 3 · Point it at a model
+
+`.env` (gitignored — keys never leave your machine):
 
 ```ini
 BASE_URL=https://api.deepseek.com/v1
@@ -37,57 +94,19 @@ MODEL=deepseek-v4-flash
 MODEL_MODE=tools          # "tools" = function-calling; "json" = JSON-in-content (weak local models)
 ```
 
-Run a benchmark (matrix of seeds × runs from the config), or watch one game live:
+### 4 · Run
 
 ```bash
-npm run live                # play one game; opens a local viewer at http://localhost:3001
-npm run bench -- --watch    # run the matrix and watch it live in the browser
+npm run live -- naive       # smoke test: deterministic baseline, no tokens spent
+npm run live                # play one game with your .env model; viewer at http://localhost:3001
+npm run bench -- --watch    # run the seed × runs matrix and watch it live in the browser
 npm run bench               # headless matrix; results → local DB + submission
-npm run bench -- naive      # deterministic baseline, no tokens spent
 npm run leaderboard         # print the local leaderboard
 ```
 
 Both `live` and `bench --watch` start a **local web viewer** and open it automatically (disable with `NO_OPEN=1`); the result still submits to `SUBMIT_URL` at game end.
 
 > Add more models as named presets in `balatro.config.json` and run `npm run bench -- <name>`.
-
----
-
-## Platform setup
-
-The harness starts `balatrobot` from your `PATH`. In normal `spawn` mode it lets balatrobot launch the game;
-in `attach` mode it connects to an already-running balatrobot HTTP server and does not start or stop Balatro.
-
-**Windows (verified target):**
-
-- Install Lovely by putting `version.dll` next to `Balatro.exe` in the Steam game directory.
-- Put Steamodded and balatrobot in `%AppData%/Balatro/Mods`.
-- Use `"launchMode": "spawn"`. If balatrobot cannot auto-detect your Steam install, set `balatroPath` to `...\Balatro.exe`.
-
-**macOS (verified target):**
-
-- Install Lovely by putting `liblovely.dylib` and `run_lovely_macos.sh` in the Balatro game directory.
-- Put Steamodded and balatrobot in `~/Library/Application Support/Balatro/Mods`.
-- Use `"launchMode": "spawn"`. By default the runner points balatrobot at
-  `~/Library/Application Support/Steam/steamapps/common/Balatro/Balatro.app/Contents/MacOS/love` and derives
-  `liblovely.dylib` from the game directory.
-- If macOS blocks Lovely, allow it in System Settings → Privacy & Security, or run
-  `xattr -rd com.apple.quarantine liblovely.dylib` from the game directory.
-
-**Linux Steam+Proton (experimental, untested):**
-
-- This repo does not spawn Balatro under Proton.
-- Install the Windows Lovely `version.dll` for the Proton Balatro install and put mods under the Proton prefix,
-  typically `steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods`.
-- Start Balatro yourself through Steam with Lovely/Steamodded/balatrobot loaded.
-- Set `"launchMode": "attach"` in `balatro.config.json`; the harness will connect to the existing balatrobot server.
-
-Sources: [BalatroBot installation](https://coder.github.io/balatrobot/installation/),
-[BalatroBot CLI](https://coder.github.io/balatrobot/cli/),
-[Lovely Injector](https://github.com/ethangreen-dev/lovely-injector),
-[Steamodded Windows](https://github.com/Steamodded/smods/wiki/Installing-Steamodded-windows),
-[Steamodded macOS](https://github.com/Steamodded/smods/wiki/Installing-Steamodded-mac),
-[Steamodded Linux](https://github.com/Steamodded/smods/wiki/Installing-Steamodded-linux).
 
 ---
 
