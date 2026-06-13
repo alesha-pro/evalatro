@@ -57,7 +57,7 @@ async function main() {
       const gameId = `${label}:${seed}:r${k}:${Date.now()}`;
       console.error(`\n→ ${gameId}`);
       const game = launchBalatro(cfg.basePort);
-      await sleep(cfg.startupWaitMs);
+      if (cfg.launchMode !== "attach") await sleep(cfg.startupWaitMs);
 
       const client = new BalatroBotClient({ port: cfg.basePort, timeout: 30_000, retries: 3, retryDelay: 2000 });
       const logStream = fs.createWriteStream(`logs/${label}-${seed}-r${k}.jsonl`, { flags: "w" });

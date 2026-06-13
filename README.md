@@ -24,7 +24,7 @@ Then:
 npm install
 npm run setup        # builds the runner + the local web viewer (also installs web deps)
 
-cp balatro.config.example.json balatro.config.json   # set balatroPath
+cp balatro.config.example.json balatro.config.json   # set launchMode / paths if needed
 cp .env.example .env                                  # set your model + (optional) SUBMIT_URL
 ```
 
@@ -50,6 +50,44 @@ npm run leaderboard         # print the local leaderboard
 Both `live` and `bench --watch` start a **local web viewer** and open it automatically (disable with `NO_OPEN=1`); the result still submits to `SUBMIT_URL` at game end.
 
 > Add more models as named presets in `balatro.config.json` and run `npm run bench -- <name>`.
+
+---
+
+## Platform setup
+
+The harness starts `balatrobot` from your `PATH`. In normal `spawn` mode it lets balatrobot launch the game;
+in `attach` mode it connects to an already-running balatrobot HTTP server and does not start or stop Balatro.
+
+**Windows (verified target):**
+
+- Install Lovely by putting `version.dll` next to `Balatro.exe` in the Steam game directory.
+- Put Steamodded and balatrobot in `%AppData%/Balatro/Mods`.
+- Use `"launchMode": "spawn"`. If balatrobot cannot auto-detect your Steam install, set `balatroPath` to `...\Balatro.exe`.
+
+**macOS (verified target):**
+
+- Install Lovely by putting `liblovely.dylib` and `run_lovely_macos.sh` in the Balatro game directory.
+- Put Steamodded and balatrobot in `~/Library/Application Support/Balatro/Mods`.
+- Use `"launchMode": "spawn"`. By default the runner points balatrobot at
+  `~/Library/Application Support/Steam/steamapps/common/Balatro/Balatro.app/Contents/MacOS/love` and derives
+  `liblovely.dylib` from the game directory.
+- If macOS blocks Lovely, allow it in System Settings → Privacy & Security, or run
+  `xattr -rd com.apple.quarantine liblovely.dylib` from the game directory.
+
+**Linux Steam+Proton (experimental, untested):**
+
+- This repo does not spawn Balatro under Proton.
+- Install the Windows Lovely `version.dll` for the Proton Balatro install and put mods under the Proton prefix,
+  typically `steamapps/compatdata/2379780/pfx/drive_c/users/steamuser/AppData/Roaming/Balatro/Mods`.
+- Start Balatro yourself through Steam with Lovely/Steamodded/balatrobot loaded.
+- Set `"launchMode": "attach"` in `balatro.config.json`; the harness will connect to the existing balatrobot server.
+
+Sources: [BalatroBot installation](https://coder.github.io/balatrobot/installation/),
+[BalatroBot CLI](https://coder.github.io/balatrobot/cli/),
+[Lovely Injector](https://github.com/ethangreen-dev/lovely-injector),
+[Steamodded Windows](https://github.com/Steamodded/smods/wiki/Installing-Steamodded-windows),
+[Steamodded macOS](https://github.com/Steamodded/smods/wiki/Installing-Steamodded-mac),
+[Steamodded Linux](https://github.com/Steamodded/smods/wiki/Installing-Steamodded-linux).
 
 ---
 

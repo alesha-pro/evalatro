@@ -1,6 +1,9 @@
 {
   "_comment": "Copy to balatro.config.json and edit. QUICK PATH: set BASE_URL / BASE_KEY / MODEL in .env and run with no model argument. API keys come ONLY from env vars named by each model's apiKeyEnv — never put keys in this file. Submission: set submitUrl (or the SUBMIT_URL env var) to a leaderboard backend; set SUBMIT=false or pass --no-submit to opt out entirely.",
-  "balatroPath": "C:\\Path\\To\\SteamLibrary\\steamapps\\common\\Balatro\\Balatro.exe",
+  "_launchMode_comment": "spawn starts Balatro through balatrobot from PATH. attach connects to an already-running balatrobot HTTP server; use attach for Linux Steam+Proton (experimental, untested).",
+  "launchMode": "spawn",
+  "balatroPath": "",
+  "lovelyPath": "",
   "basePort": 12346,
   "relayPort": 3001,
   "deck": "RED",

@@ -24,7 +24,7 @@ async function main() {
   recordMovesToDb(db); // persist every move for the per-game history pages
 
   const game = launchBalatro(cfg.basePort);
-  await sleep(cfg.startupWaitMs);
+  if (cfg.launchMode !== "attach") await sleep(cfg.startupWaitMs);
 
   const client = new BalatroBotClient({ port: cfg.basePort, timeout: 30_000, retries: 3 });
   await waitForHealth(client);

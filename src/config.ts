@@ -58,9 +58,11 @@ export interface ModelConfig {
 }
 
 export interface BenchConfig {
-  /** Path to Balatro.exe (launched via the balatrobot CLI). */
+  /** How the harness gets a balatrobot HTTP server: spawn it, or attach to one already running. */
+  launchMode: "spawn" | "attach";
+  /** Path to Balatro's launcher executable. Empty lets balatrobot auto-detect when possible. */
   balatroPath: string;
-  /** Path to Lovely (version.dll). Derived from balatroPath dir if omitted. */
+  /** Path to Lovely (version.dll/liblovely.dylib). Derived from balatroPath dir if omitted. */
   lovelyPath: string;
   /** Dir containing the balatrobot CLI shim (added to PATH on spawn). */
   pythonScriptsDir: string;
@@ -97,19 +99,47 @@ export interface BenchConfig {
 
 const CONFIG_PATH = path.resolve(process.env.BALATRO_CONFIG || "balatro.config.json");
 
+const defaultBalatroPath =
+  process.platform === "darwin"
+    ? path.join(
+      process.env.HOME ?? "",
+      "Library",
+      "Application Support",
+      "Steam",
+      "steamapps",
+      "common",
+      "Balatro",
+      "Balatro.app",
+      "Contents",
+      "MacOS",
+      "love",
+    )
+    : "";
+
+const defaultPythonScriptsDir =
+  process.platform === "win32"
+    ? path.join(
+      process.env.LOCALAPPDATA ?? "",
+      "Packages",
+      "PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0",
+      "LocalCache",
+      "local-packages",
+      "Python313",
+      "Scripts",
+    )
+    : "";
+
+const defaultUserBin =
+  process.platform === "win32"
+    ? path.join(process.env.USERPROFILE ?? "", ".local", "bin")
+    : "";
+
 const DEFAULTS: BenchConfig = {
-  balatroPath: "E:\\SteamLibrary\\steamapps\\common\\Balatro\\Balatro.exe",
+  launchMode: "spawn",
+  balatroPath: defaultBalatroPath,
   lovelyPath: "",
-  pythonScriptsDir: path.join(
-    process.env.LOCALAPPDATA ?? "",
-    "Packages",
-    "PythonSoftwareFoundation.Python.3.13_qbz5n2kfra8p0",
-    "LocalCache",
-    "local-packages",
-    "Python313",
-    "Scripts",
-  ),
-  userBin: path.join(process.env.USERPROFILE ?? "", ".local", "bin"),
+  pythonScriptsDir: defaultPythonScriptsDir,
+  userBin: defaultUserBin,
   basePort: 12346,
   relayPort: 3001,
   seeds: ["BENCH01", "BENCH02", "BENCH03", "BENCH04", "BENCH05"],
@@ -140,7 +170,14 @@ export function loadConfig(): BenchConfig {
     }
   }
   const cfg: BenchConfig = { ...DEFAULTS, ...fileCfg };
-  if (!cfg.lovelyPath) cfg.lovelyPath = path.join(path.dirname(cfg.balatroPath), "version.dll");
+  if (process.env.LAUNCH_MODE === "spawn" || process.env.LAUNCH_MODE === "attach") {
+    cfg.launchMode = process.env.LAUNCH_MODE;
+  }
+  if (!cfg.lovelyPath && cfg.launchMode !== "attach" && cfg.balatroPath) {
+    cfg.lovelyPath = process.platform === "darwin"
+      ? path.resolve(path.dirname(cfg.balatroPath), "..", "..", "..", "liblovely.dylib")
+      : path.join(path.dirname(cfg.balatroPath), "version.dll");
+  }
   // Env overrides for the submission / live-ingest knobs (so they can be set
   // without editing the committed config file).
   if (process.env.SUBMIT_URL !== undefined) cfg.submitUrl = process.env.SUBMIT_URL;
