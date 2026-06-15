@@ -38,7 +38,7 @@ async function main() {
     console.log("");
     console.log("Next:");
     if (options.mode === "uninstall") {
-      console.log("- Install Balatro through Steam and rerun `npm run setup:local -- --install` when you want a fresh setup.");
+      console.log("- Install Balatro through Steam and rerun `npm run setup:install` when you want a fresh setup.");
     } else {
       console.log("- Run `npm run live -- naive` for the no-token smoke test.");
       console.log("- Run `npm run live` after adding BASE_URL / BASE_KEY / MODEL to .env.");

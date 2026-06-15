@@ -37,6 +37,20 @@ function prependToPath(dir) {
   }
 }
 
+function resolveLocalCommand(name) {
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "";
+  if (!home) return "";
+  const bin = userLocalBin(process.platform, home);
+  const candidates = process.platform === "win32"
+    ? [`${name}.exe`, `${name}.cmd`, `${name}.bat`, name]
+    : [name];
+  for (const candidate of candidates) {
+    const target = path.join(bin, candidate);
+    if (fs.existsSync(target)) return target;
+  }
+  return "";
+}
+
 function decodeSteamVdfString(value) {
   return value
     .replace(/\\\\/g, "\\")
@@ -253,7 +267,7 @@ export function commandExists(name) {
   const result = process.platform === "win32"
     ? childProcess.spawnSync("where", [name], { stdio: "ignore", shell: false })
     : childProcess.spawnSync("sh", ["-c", `command -v ${name}`], { stdio: "ignore", shell: false });
-  return result.status === 0;
+  return result.status === 0 || !!resolveLocalCommand(name);
 }
 
 export function lovelyAssetFor(layout) {
@@ -417,13 +431,14 @@ export function ensureLocalFiles({ repoRoot, write, layout }) {
 
 export function runCommand(command, args, { dryRun }) {
   const executable = process.platform === "win32" && command === "npm" ? process.execPath : command;
+  const resolvedExecutable = executable === command ? resolveLocalCommand(command) || command : executable;
   const spawnArgs = process.platform === "win32" && command === "npm"
     ? [path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"), ...args]
     : args;
   const display = [command, ...args].map((part) => (/\s/.test(part) ? JSON.stringify(part) : part)).join(" ");
   console.log(`$ ${display}`);
   if (dryRun) return;
-  const result = childProcess.spawnSync(executable, spawnArgs, { stdio: "inherit", shell: false });
+  const result = childProcess.spawnSync(resolvedExecutable, spawnArgs, { stdio: "inherit", shell: false });
   if (result.status !== 0) {
     throw new Error(`Command failed: ${display}`);
   }
@@ -431,13 +446,14 @@ export function runCommand(command, args, { dryRun }) {
 
 function runCommandBestEffort(command, args, { dryRun }) {
   const executable = process.platform === "win32" && command === "npm" ? process.execPath : command;
+  const resolvedExecutable = executable === command ? resolveLocalCommand(command) || command : executable;
   const spawnArgs = process.platform === "win32" && command === "npm"
     ? [path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"), ...args]
     : args;
   const display = [command, ...args].map((part) => (/\s/.test(part) ? JSON.stringify(part) : part)).join(" ");
   console.log(`$ ${display}`);
   if (dryRun) return;
-  const result = childProcess.spawnSync(executable, spawnArgs, { stdio: "inherit", shell: false });
+  const result = childProcess.spawnSync(resolvedExecutable, spawnArgs, { stdio: "inherit", shell: false });
   if (result.status !== 0) {
     console.log(`Skip: command did not complete cleanly (${display})`);
   }

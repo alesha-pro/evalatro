@@ -28,7 +28,7 @@
     "setup:local": "node scripts/setup-local.mjs",
     "setup:check": "node scripts/setup-local.mjs --check",
     "setup:install": "node scripts/setup-local.mjs --install --yes",
-    "setup:uninstall": "node scripts/setup-local.mjs --uninstall"
+    "setup:uninstall": "node scripts/setup-local.mjs --uninstall --yes"
   },
   "keywords": [
     "balatro",
