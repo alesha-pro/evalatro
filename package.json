@@ -25,7 +25,10 @@
     "web:dev": "npm --prefix web run dev",
     "web:build": "npm --prefix web run build",
     "setup": "npm --prefix web install && npm run build && npm run web:build",
-    "setup:local": "node scripts/setup-local.mjs"
+    "setup:local": "node scripts/setup-local.mjs",
+    "setup:check": "node scripts/setup-local.mjs --check",
+    "setup:install": "node scripts/setup-local.mjs --install --yes",
+    "setup:uninstall": "node scripts/setup-local.mjs --uninstall"
   },
   "keywords": [
     "balatro",

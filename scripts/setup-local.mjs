@@ -32,7 +32,7 @@ async function main() {
     if (!plan.canInstallLovely) {
       console.log("- Install Balatro through Steam if the game path above is missing.");
     }
-    console.log("- Run `npm run setup:local -- --install` to install repo deps, mods, and Lovely.");
+    console.log("- Run `npm run setup:install` to install repo deps, mods, and Lovely.");
     console.log("- Run `npm run live -- naive` for the no-token smoke test.");
   } else {
     console.log("");

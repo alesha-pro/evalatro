@@ -8,6 +8,8 @@ import { stdin as input, stdout as output } from "node:process";
 export const SMODS_REPO = "https://github.com/Steamodded/smods.git";
 export const BALATROBOT_REPO = "https://github.com/coder/balatrobot.git";
 export const LOVELY_RELEASE_BASE = "https://github.com/ethangreen-dev/lovely-injector/releases/latest/download";
+export const UV_INSTALL_PS1 = "https://astral.sh/uv/install.ps1";
+export const UV_INSTALL_SH = "https://astral.sh/uv/install.sh";
 
 function pathApi(platform) {
   return platform === "win32" ? path.win32 : path.posix;
@@ -15,6 +17,24 @@ function pathApi(platform) {
 
 function joinFor(platform, ...parts) {
   return pathApi(platform).join(...parts);
+}
+
+function pathEnvKey() {
+  return Object.keys(process.env).find((key) => key.toLowerCase() === "path") ?? "PATH";
+}
+
+function userLocalBin(platform, home) {
+  return joinFor(platform, home, ".local", "bin");
+}
+
+function prependToPath(dir) {
+  const key = pathEnvKey();
+  const current = process.env[key] ?? "";
+  const delimiter = process.platform === "win32" ? ";" : ":";
+  const parts = current.split(delimiter).filter(Boolean);
+  if (!parts.some((part) => part.toLowerCase() === dir.toLowerCase())) {
+    process.env[key] = [dir, ...parts].join(delimiter);
+  }
 }
 
 function decodeSteamVdfString(value) {
@@ -207,7 +227,8 @@ export function parseArgs(argv) {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (arg === "--check") options.mode = "check";
+    if (arg === "--") continue;
+    else if (arg === "--check") options.mode = "check";
     else if (arg === "--install") options.mode = "install";
     else if (arg === "--install-mods") options.mode = "install-mods";
     else if (arg === "--install-lovely") options.mode = "install-lovely";
@@ -251,13 +272,18 @@ export function lovelyAssetFor(layout) {
 export function buildSetupPlan({ options, layout, exists = fs.existsSync, commandExists: hasCommand = commandExists }) {
   const effectiveLayout = withGamePath(layout, layout.platform, options.gamePath);
   const missingCommands = ["node", "npm", "git", "uv"].filter((name) => !hasCommand(name));
+  const missingRequiredCommands = ["node", "npm", "git"].filter((name) => !hasCommand(name));
+  const uvMissing = missingCommands.includes("uv");
   const gameExists = exists(effectiveLayout.gameDir) || exists(effectiveLayout.gameExecutable);
   const modsExists = exists(effectiveLayout.modsDir);
   const requiresGame = options.mode === "install" || options.mode === "install-lovely";
 
   const blockers = [];
   const warnings = [];
-  if (missingCommands.length) warnings.push(`Missing required commands: ${missingCommands.join(", ")}`);
+  if (missingRequiredCommands.length) warnings.push(`Missing required commands: ${missingRequiredCommands.join(", ")}`);
+  if (uvMissing && options.mode !== "uninstall") {
+    warnings.push("uv is not on PATH; --install will bootstrap it with the official Astral installer.");
+  }
   if (!gameExists && options.mode !== "uninstall") {
     const message = `Balatro is not installed at ${effectiveLayout.gameDir}. Install Balatro through Steam first, or pass --game-path if Steam library auto-detection missed it.`;
     if (requiresGame) blockers.push(message);
@@ -276,7 +302,10 @@ export function buildSetupPlan({ options, layout, exists = fs.existsSync, comman
     steps.push({ title: "Remove game-side mod folders", commands: [] });
     steps.push({ title: "Remove Lovely Injector files", commands: [] });
   }
-  if (!missingCommands.includes("uv") && options.mode !== "install-mods" && options.mode !== "install-lovely" && options.mode !== "uninstall" && !blockers.length) {
+  if (uvMissing && options.mode === "install" && !blockers.length) {
+    steps.push({ title: "Install uv", commands: [] });
+  }
+  if (options.mode !== "install-mods" && options.mode !== "install-lovely" && options.mode !== "uninstall" && !blockers.length) {
     steps.push({ title: "Install balatrobot CLI", commands: [["uv", "tool", "install", "balatrobot"]] });
   }
   if (options.mode !== "install-mods" && options.mode !== "install-lovely" && options.mode !== "uninstall" && !blockers.length) {
@@ -315,10 +344,12 @@ export function buildSetupPlan({ options, layout, exists = fs.existsSync, comman
   return {
     layout: effectiveLayout,
     missingCommands,
+    missingRequiredCommands,
+    uvMissing,
     blockers,
     warnings,
     steps,
-    canInstallRepo: missingCommands.length === 0,
+    canInstallRepo: missingRequiredCommands.length === 0,
     canInstallMods: !missingCommands.includes("git") && (modsExists || options.mode !== "check"),
     canInstallLovely: gameExists,
   };
@@ -385,22 +416,43 @@ export function ensureLocalFiles({ repoRoot, write, layout }) {
 }
 
 export function runCommand(command, args, { dryRun }) {
+  const executable = process.platform === "win32" && command === "npm" ? process.execPath : command;
+  const spawnArgs = process.platform === "win32" && command === "npm"
+    ? [path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"), ...args]
+    : args;
   const display = [command, ...args].map((part) => (/\s/.test(part) ? JSON.stringify(part) : part)).join(" ");
   console.log(`$ ${display}`);
   if (dryRun) return;
-  const result = childProcess.spawnSync(command, args, { stdio: "inherit", shell: false });
+  const result = childProcess.spawnSync(executable, spawnArgs, { stdio: "inherit", shell: false });
   if (result.status !== 0) {
     throw new Error(`Command failed: ${display}`);
   }
 }
 
 function runCommandBestEffort(command, args, { dryRun }) {
+  const executable = process.platform === "win32" && command === "npm" ? process.execPath : command;
+  const spawnArgs = process.platform === "win32" && command === "npm"
+    ? [path.join(path.dirname(process.execPath), "node_modules", "npm", "bin", "npm-cli.js"), ...args]
+    : args;
   const display = [command, ...args].map((part) => (/\s/.test(part) ? JSON.stringify(part) : part)).join(" ");
   console.log(`$ ${display}`);
   if (dryRun) return;
-  const result = childProcess.spawnSync(command, args, { stdio: "inherit", shell: false });
+  const result = childProcess.spawnSync(executable, spawnArgs, { stdio: "inherit", shell: false });
   if (result.status !== 0) {
     console.log(`Skip: command did not complete cleanly (${display})`);
+  }
+}
+
+function installUvIfNeeded(layout, options) {
+  if (commandExists("uv")) return;
+  if (layout.platform === "win32") {
+    runCommand("powershell", ["-ExecutionPolicy", "ByPass", "-c", `irm ${UV_INSTALL_PS1} | iex`], options);
+  } else {
+    runCommand("sh", ["-c", `curl -LsSf ${UV_INSTALL_SH} | sh`], options);
+  }
+  prependToPath(userLocalBin(layout.platform, process.env.HOME ?? process.env.USERPROFILE ?? ""));
+  if (!options.dryRun && !commandExists("uv")) {
+    throw new Error("uv was installed, but is still not on PATH. Restart your shell or add your user .local/bin directory to PATH.");
   }
 }
 
@@ -527,6 +579,7 @@ export async function executeSetup({ repoRoot, options, plan }) {
   }
 
   if (options.mode === "install" && plan.canInstallRepo) {
+    installUvIfNeeded(plan.layout, commandOptions);
     runCommand("uv", ["tool", "install", "balatrobot"], commandOptions);
     ensureLocalFiles({ repoRoot, write, layout: plan.layout });
     if (!options.skipNpm) {

@@ -49,6 +49,7 @@ test("defaultLayout returns Windows Steam and AppData paths", () => {
     platform: "win32",
     home: "C:\\Users\\Alice",
     appData: "C:\\Users\\Alice\\AppData\\Roaming",
+    exists: () => false,
   });
 
   assert.equal(layout.gameDir, "C:\\Program Files (x86)\\Steam\\steamapps\\common\\Balatro");
@@ -101,7 +102,22 @@ test("parseArgs keeps check mode safe by default", () => {
     skipNpm: true,
     gamePath: "/tmp/Balatro",
   });
+  assert.equal(parseArgs(["--", "--install"]).mode, "install");
   assert.equal(parseArgs(["--uninstall"]).mode, "uninstall");
+});
+
+test("buildSetupPlan bootstraps uv during install", () => {
+  const plan = buildSetupPlan({
+    options: parseArgs(["--install"]),
+    layout: defaultLayout({ platform: "win32", home: "C:\\Users\\Alice", appData: "C:\\Users\\Alice\\AppData\\Roaming" }),
+    exists: () => true,
+    commandExists: (name) => name !== "uv",
+  });
+
+  assert.equal(plan.canInstallRepo, true);
+  assert.equal(plan.uvMissing, true);
+  assert(plan.steps.some((step) => step.title === "Install uv"));
+  assert(plan.steps.some((step) => step.title === "Install balatrobot CLI"));
 });
 
 test("buildSetupPlan shows missing game as a warning in check mode", () => {

@@ -45,10 +45,10 @@ helper intentionally cannot do.
 
 Run and report:
 ```bash
-node -v          # need 20+
-npm -v
-git --version
-uv --version     # if missing, install uv first: https://docs.astral.sh/uv/getting-started/installation/
+node -v          # need 20+, optional before bootstrap
+npm -v           # optional before bootstrap
+git --version    # optional before bootstrap
+uv --version     # optional; setup:install bootstraps uv if it is missing
 ```
 Identify the OS and find the Balatro game directory:
 - **Windows:** `…\steamapps\common\Balatro\` (next to `Balatro.exe`)
@@ -59,10 +59,26 @@ If you can't locate the game directory, ask the user where Balatro is installed.
 
 ## Step 1 · Automated setup helper
 
+If Node.js/npm are missing, run the OS bootstrap first:
+
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -File scripts\bootstrap.ps1
+```
+
+```bash
+# macOS
+sh scripts/bootstrap.sh
+```
+
+The bootstrap installs Node.js/npm and Git if needed, then runs `npm run setup:install`.
+
+If Node.js/npm are already available, continue with the normal helper commands.
+
 Run:
 
 ```bash
-npm run setup:local -- --check
+npm run setup:check
 ```
 
 Report the detected OS, game path, Mods path, missing commands, and warnings.
@@ -70,7 +86,7 @@ Report the detected OS, game path, Mods path, missing commands, and warnings.
 Then, if the check looks sane, run:
 
 ```bash
-npm run setup:local -- --install
+npm run setup:install
 ```
 
 If Balatro is not installed, this command must stop before installing anything else and print:
@@ -83,6 +99,8 @@ Cannot continue:
 In that case, tell the user to install Balatro through Steam first, then rerun the command.
 
 What this helper may do:
+- install Node.js/npm and Git from the OS bootstrap script;
+- bootstrap `uv` if it is not already on PATH;
 - install `balatrobot` CLI with `uv tool install balatrobot`;
 - create local ignored `.env` and `balatro.config.json` without secrets;
 - install/build/test this repo;
@@ -108,7 +126,7 @@ Targeted repair commands:
 ```bash
 npm run setup:local -- --install-mods      # only create/update Steamodded + balatrobot mod folders
 npm run setup:local -- --install-lovely    # only download/install Lovely into the Balatro game folder
-npm run setup:local -- --uninstall         # remove helper-installed CLI, repo outputs, mods, and Lovely files
+npm run setup:uninstall                    # remove helper-installed CLI, repo outputs, mods, and Lovely files
 ```
 
 `--uninstall` must not remove the user's Balatro game installation.

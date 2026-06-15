@@ -35,11 +35,23 @@ annoying question: can the model survive a messy game where early choices shape 
 
 You need to own and install **Balatro through Steam** first. Evalatro does not install, ship, or pirate the game.
 
+If Node.js/npm are already installed:
+
 ```bash
-npm install
-npm run setup:local -- --check
-npm run setup:local -- --install
+npm run setup:install
 npm run live -- naive
+```
+
+On a fresh machine without Node.js/npm, use the OS bootstrap first:
+
+```powershell
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -File scripts\bootstrap.ps1
+```
+
+```bash
+# macOS
+sh scripts/bootstrap.sh
 ```
 
 `npm run live -- naive` is a smoke test. It spends no model tokens. If it reaches `Game over (...)`, Balatro, Lovely,
@@ -79,13 +91,20 @@ The setup helper can install the repo pieces, mods, and Lovely files. It intenti
 into Steam.
 
 ```bash
-npm run setup:local -- --check          # print detected paths and missing pieces
-npm run setup:local -- --install        # install CLI deps, repo deps, configs, mods, and Lovely
+npm run setup:install                   # one-command install: CLI deps, repo deps, configs, mods, and Lovely
+npm run setup:check                     # print detected paths and missing pieces
+npm run setup:uninstall                 # remove helper-installed pieces
+npm run setup:local -- --install        # advanced form: same installer, but with confirmation and extra flags
 npm run setup:local -- --install-mods   # only create/update Steamodded + balatrobot mod folders
 npm run setup:local -- --install-lovely # only install Lovely into the game folder
-npm run setup:local -- --uninstall      # remove helper-installed pieces
 npm run setup:local -- --dry-run        # print what would happen
 ```
+
+On Windows and macOS, `npm run setup:install` also bootstraps `uv` if it is not already on `PATH`, then uses it to
+install the persistent `balatrobot` CLI.
+
+If `npm` itself is missing, run `scripts\bootstrap.ps1` on Windows or `scripts/bootstrap.sh` on macOS. The bootstrap
+script installs Node.js/npm and Git with the platform package manager, then delegates to `npm run setup:install`.
 
 If Balatro is missing, `--install` stops before doing the rest:
 
