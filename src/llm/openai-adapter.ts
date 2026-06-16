@@ -6,6 +6,12 @@ import { SummarizedState } from "../state/summarizer.js";
 import { ACTION_TOOLS, openAiTools } from "../tools/registry.js";
 
 const SYSTEM_PROMPT_PATH = "src/agent/SYSTEM_PROMPT.md";
+const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 120_000;
+const LLM_REQUEST_TIMEOUT_MS = (() => {
+  const raw = process.env.LLM_REQUEST_TIMEOUT_MS;
+  const timeout = raw ? Number(raw) : DEFAULT_LLM_REQUEST_TIMEOUT_MS;
+  return Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_LLM_REQUEST_TIMEOUT_MS;
+})();
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
 // ── Shapes of the OpenAI-compatible chat/completions response ──
@@ -176,7 +182,7 @@ async function callChat(
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 120_000);
+      const timer = setTimeout(() => controller.abort(), LLM_REQUEST_TIMEOUT_MS);
       let res;
       try {
         res = await request(endpoint, {
