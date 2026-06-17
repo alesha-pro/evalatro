@@ -21,7 +21,9 @@ export interface ChatResponse {
     finish_reason?: string | null;
     message?: {
       content?: string | null;
+      reasoning?: string | null;
       reasoning_content?: string | null;
+      reasoning_details?: { type?: string; text?: string | null; summary?: string | string[] | null }[] | null;
       tool_calls?: { id?: string; function: { name: string; arguments: string } }[];
     };
   }[];
@@ -95,13 +97,35 @@ function splitToolNotes(args: Record<string, unknown>): { args: Record<string, u
   return { args: cleanArgs, notes: notes || undefined };
 }
 
+function nonEmptyUnique(parts: Array<string | null | undefined>): string[] {
+  return [...new Set(parts.map(p => p?.trim() ?? "").filter(Boolean))];
+}
+
+function reasoningDetailsText(details: ChatMessage["reasoning_details"]): string {
+  if (!Array.isArray(details)) return "";
+  return nonEmptyUnique(details.map(part => {
+    if (typeof part?.text === "string") return part.text;
+    if (typeof part?.summary === "string") return part.summary;
+    if (Array.isArray(part?.summary)) return part.summary.filter((s): s is string => typeof s === "string").join("\n");
+    return "";
+  })).join("\n\n");
+}
+
+function reasoningText(msg: ChatMessage): string {
+  return nonEmptyUnique([
+    msg.reasoning,
+    msg.reasoning_content,
+    reasoningDetailsText(msg.reasoning_details),
+  ]).join("\n\n");
+}
+
 function diagnosticFor(
   choice: ChatChoice | undefined,
   msg: ChatMessage | undefined,
   cause: NonNullable<Decision["diagnostic"]>["cause"] = null,
 ): NonNullable<Decision["diagnostic"]> {
   const content = msg?.content ?? "";
-  const reasoning = msg?.reasoning_content ?? "";
+  const reasoning = msg ? reasoningText(msg) : "";
   return {
     finishReason: choice?.finish_reason ?? null,
     cause,
@@ -112,17 +136,15 @@ function diagnosticFor(
 }
 
 function visibleReasoning(msg: ChatMessage): string {
-  return [msg.content, msg.reasoning_content]
-    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+  return nonEmptyUnique([msg.content, reasoningText(msg)])
     .join("\n\n")
     .trim();
 }
 
 function extractJsonFromMessage(msg: ChatMessage): any {
-  const candidates = [msg.content, msg.reasoning_content]
-    .filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+  const candidates = nonEmptyUnique([msg.content, reasoningText(msg)]);
   let lastErr: unknown;
-  for (const candidate of [...new Set(candidates)]) {
+  for (const candidate of candidates) {
     try {
       return extractJson(candidate);
     } catch (e) {

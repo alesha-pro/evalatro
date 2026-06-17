@@ -52,6 +52,17 @@ eq("reasoning_content is kept when content is empty", d.reasoning, "hidden chain
 eq("finish reason diagnostic is kept", d.diagnostic?.finishReason, "tool_calls");
 
 d = parseChatResponse(toolsCfg, {
+  choices: [{ finish_reason: "tool_calls", message: { content: "", reasoning: "OpenRouter reasoning field", tool_calls: [{ function: { name: "shop_buy", arguments: '{"card":1}' } }] } as any }],
+} as ChatResponse);
+eq("OpenRouter message.reasoning is kept when content is empty", d.reasoning, "OpenRouter reasoning field");
+eq("OpenRouter reasoning contributes to diagnostic length", d.diagnostic?.reasoningLength, "OpenRouter reasoning field".length);
+
+d = parseChatResponse(toolsCfg, {
+  choices: [{ finish_reason: "tool_calls", message: { content: "", reasoning_details: [{ type: "reasoning.text", text: "reasoning details text" }], tool_calls: [{ function: { name: "next_round", arguments: '{}' } }] } as any }],
+} as ChatResponse);
+eq("OpenRouter reasoning_details text is used as a fallback", d.reasoning, "reasoning details text");
+
+d = parseChatResponse(toolsCfg, {
   choices: [{ message: { content: "buying for mult build", tool_calls: [{ function: { name: "shop_buy", arguments: '{"card":0,"notes":"Build around flat mult; prioritize reliable pair/two-pair scoring."}' } }] } }],
 } as ChatResponse);
 eq("tool notes become carried memory", d.notes, "Build around flat mult; prioritize reliable pair/two-pair scoring.");
