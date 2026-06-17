@@ -19,6 +19,7 @@ export interface DecisionEvent extends GameEvent {
   state: Record<string, unknown>;
   step?: number;
   usage?: { tokensIn: number; tokensOut: number; costUsd?: number };
+  diagnostic?: Record<string, unknown>;
   /** Set when the game rejected the move (illegal / unknown tool / bad args). */
   illegal?: string;
 }

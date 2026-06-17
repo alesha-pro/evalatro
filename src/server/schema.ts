@@ -13,6 +13,8 @@ export const MoveSubmissionSchema = z.object({
   args: z.record(z.any()).optional(),
   reasoning: z.string().optional(),
   illegal: z.string().nullable().optional(),
+  finishReason: z.string().nullable().optional(),
+  diagnostic: z.record(z.any()).optional(),
   tokensIn: z.number().optional(),
   tokensOut: z.number().optional(),
   costUsd: z.number().optional(),

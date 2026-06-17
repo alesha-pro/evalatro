@@ -25,7 +25,8 @@ export interface GameSummaryT {
 }
 export interface MoveT {
   step: number; ts: number; state: StateT; tool: string; args: Record<string, unknown>;
-  reasoning?: string; illegal?: string | null; tokensIn?: number; tokensOut?: number; costUsd?: number;
+  reasoning?: string; illegal?: string | null; finishReason?: string | null; diagnostic?: Record<string, unknown> | null;
+  tokensIn?: number; tokensOut?: number; costUsd?: number;
 }
 export interface RunRow {
   gameId: string; model: string; seed: string; deck: string; stake: string; outcome: string | null; won: number;
@@ -38,6 +39,7 @@ export interface GameDetail { run: RunRow | null; moves: MoveT[]; }
 export interface LiveEvent {
   type: string; gameId?: string; model?: string; seed?: string; ts?: number;
   state?: StateT; reasoning?: string; action?: { tool: string; args: Record<string, unknown> };
-  illegal?: string; step?: number; usage?: { tokensIn: number; tokensOut: number; costUsd?: number };
+  illegal?: string; finishReason?: string | null; diagnostic?: Record<string, unknown>;
+  step?: number; usage?: { tokensIn: number; tokensOut: number; costUsd?: number };
   outcome?: string; won?: boolean; finalAnte?: number; finalRound?: number; dollars?: number;
 }

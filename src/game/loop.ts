@@ -163,11 +163,11 @@ export async function runGame(decide: DecideFn, opts: RunOptions): Promise<RunRe
         type: "decision", gameId, model, seed, ts: Date.now(), step,
         reasoning: decision.reasoning ?? "",
         action: { tool: decision.tool, args: decision.args },
-        legalActions, state: preState as any, usage: decision.usage, illegal,
+        legalActions, state: preState as any, usage: decision.usage, diagnostic: decision.diagnostic, illegal,
       });
       log({
         ts: Date.now(), type: "decision", gameId, model, seed, step,
-        reasoning: decision.reasoning, action: { tool: decision.tool, args: decision.args }, legalActions, illegal,
+        reasoning: decision.reasoning, action: { tool: decision.tool, args: decision.args }, legalActions, diagnostic: decision.diagnostic, illegal,
       });
       emitState(state);
       if (state.ante >= targetAnte + 1) break;

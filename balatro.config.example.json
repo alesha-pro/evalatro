@@ -27,7 +27,7 @@
       "apiKeyEnv": "OPENROUTER_API_KEY",
       "mode": "tools",
       "temperature": 0.3,
-      "maxTokens": 4096,
+      "maxTokens": 16384,
       "enabled": false,
       "pricePerMTokIn": 0.15,
       "pricePerMTokOut": 0.6
@@ -38,7 +38,7 @@
       "model": "llama3.1:8b",
       "mode": "json",
       "temperature": 0.3,
-      "maxTokens": 4096,
+      "maxTokens": 16384,
       "enabled": false
     }
   ]

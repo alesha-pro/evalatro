@@ -196,6 +196,8 @@ npm test          # expect "20 passed, 0 failed"
    - `BASE_KEY` — their API key (paste into `.env`, never anywhere tracked)
    - `MODEL` — the provider's model id
    - `MODEL_MODE` — `tools` for capable models, `json` for weak/local ones
+   - `MODEL_MAX_TOKENS` is optional; the runner defaults to `16384` per turn.
+   - `LLM_REQUEST_TIMEOUT_MS` is optional; raise it for very slow local or reasoning-heavy models.
 
 ## Step 6 · End-to-end verification
 
@@ -206,6 +208,8 @@ Expected: balatrobot launches Balatro (spawn mode) or connects (attach mode) →
 one deterministic game plays → `Game over (...)` prints. **No API tokens are spent** on `naive`.
 If that works, ask the user for `BASE_URL`, `BASE_KEY`, `MODEL`, and `MODEL_MODE`, put them in `.env` only,
 then try the real model with `npm run live` and confirm the local viewer opens at <http://localhost:3001>.
+For `tools` mode, the runner retries text-only responses with a required tool call and falls back when a provider
+rejects optional OpenAI-compatible fields such as `tool_choice` or `response_format`.
 The local viewer is only for this machine; the completed run is submitted to the public leaderboard unless submit was disabled.
 
 ### If it hangs or fails

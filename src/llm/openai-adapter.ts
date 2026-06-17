@@ -6,6 +6,7 @@ import { SummarizedState } from "../state/summarizer.js";
 import { ACTION_TOOLS, openAiTools } from "../tools/registry.js";
 
 const SYSTEM_PROMPT_PATH = "src/agent/SYSTEM_PROMPT.md";
+const DEFAULT_MAX_TOKENS = 16_384;
 const DEFAULT_LLM_REQUEST_TIMEOUT_MS = 120_000;
 const LLM_REQUEST_TIMEOUT_MS = (() => {
   const raw = process.env.LLM_REQUEST_TIMEOUT_MS;
@@ -27,6 +28,9 @@ export interface ChatResponse {
   usage?: { prompt_tokens?: number; completion_tokens?: number };
   error?: { message?: string };
 }
+
+type ChatChoice = NonNullable<ChatResponse["choices"]>[number];
+type ChatMessage = NonNullable<ChatChoice["message"]>;
 
 function loadStrategyPrompt(): string {
   try {
@@ -51,9 +55,25 @@ export function extractJson(text: string): any {
   const start = t.indexOf("{");
   if (start === -1) throw new Error("no JSON object found");
   let depth = 0;
+  let inString = false;
+  let escaped = false;
   for (let i = start; i < t.length; i++) {
-    if (t[i] === "{") depth++;
-    else if (t[i] === "}") {
+    const ch = t[i];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = inString;
+      continue;
+    }
+    if (ch === "\"") {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+    if (ch === "{") depth++;
+    else if (ch === "}") {
       depth--;
       if (depth === 0) return JSON.parse(t.slice(start, i + 1));
     }
@@ -75,6 +95,44 @@ function splitToolNotes(args: Record<string, unknown>): { args: Record<string, u
   return { args: cleanArgs, notes: notes || undefined };
 }
 
+function diagnosticFor(
+  choice: ChatChoice | undefined,
+  msg: ChatMessage | undefined,
+  cause: NonNullable<Decision["diagnostic"]>["cause"] = null,
+): NonNullable<Decision["diagnostic"]> {
+  const content = msg?.content ?? "";
+  const reasoning = msg?.reasoning_content ?? "";
+  return {
+    finishReason: choice?.finish_reason ?? null,
+    cause,
+    contentLength: content.length,
+    reasoningLength: reasoning.length,
+    rawToolCallsCount: msg?.tool_calls?.length ?? 0,
+  };
+}
+
+function visibleReasoning(msg: ChatMessage): string {
+  return [msg.content, msg.reasoning_content]
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+    .join("\n\n")
+    .trim();
+}
+
+function extractJsonFromMessage(msg: ChatMessage): any {
+  const candidates = [msg.content, msg.reasoning_content]
+    .filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+  let lastErr: unknown;
+  for (const candidate of [...new Set(candidates)]) {
+    try {
+      return extractJson(candidate);
+    } catch (e) {
+      lastErr = e;
+    }
+  }
+  if (lastErr instanceof Error) throw lastErr;
+  throw new Error("no JSON object found");
+}
+
 /**
  * Pure response → Decision mapping. This is the unit-testable seam: it takes a
  * raw chat response (no network) and produces the move.
@@ -92,36 +150,64 @@ export function parseChatResponse(cfg: ModelConfig, json: ChatResponse): Decisio
   };
   const choice = json.choices?.[0];
   const msg = choice?.message;
-  if (!msg) return { tool: "no_response", args: {}, reasoning: "model returned no message", usage };
-  // Reasoning models put their chain-of-thought in reasoning_content — fall back to it.
-  const think = (msg.content || msg.reasoning_content || "").trim();
+  if (!msg) {
+    return {
+      tool: "no_response",
+      args: {},
+      reasoning: "model returned no message",
+      usage,
+      diagnostic: diagnosticFor(choice, undefined, "no_response"),
+    };
+  }
+  const think = visibleReasoning(msg);
+  const baseDiagnostic = diagnosticFor(choice, msg);
 
   if (cfg.mode === "tools") {
     const call = msg.tool_calls?.[0];
     if (!call) {
+      const lengthCutoff = choice?.finish_reason === "length";
       const why = choice?.finish_reason === "length"
         ? `model produced no tool call before finish_reason=length (raise MODEL_MAX_TOKENS or reduce prompt): ${think}`.trim()
         : think
           ? `model returned text without a tool call: ${think}`
           : `model produced no tool call (finish_reason=${choice?.finish_reason ?? "unknown"})`;
-      return { tool: "no_tool_call", args: {}, reasoning: why, notes: think || undefined, usage };
+      return {
+        tool: lengthCutoff ? "no_tool_call_length" : "no_tool_call",
+        args: {},
+        reasoning: why,
+        notes: think || undefined,
+        usage,
+        diagnostic: { ...baseDiagnostic, cause: lengthCutoff ? "length" : "no_tool_call" },
+      };
     }
     let args: Record<string, unknown> = {};
     try {
       args = call.function.arguments ? JSON.parse(call.function.arguments) : {};
     } catch {
-      return { tool: "bad_tool_args", args: {}, reasoning: `unparseable tool args: ${call.function.arguments}`, usage };
+      return {
+        tool: "bad_tool_args",
+        args: {},
+        reasoning: `unparseable tool args: ${call.function.arguments}`,
+        usage,
+        diagnostic: { ...baseDiagnostic, cause: "bad_tool_args" },
+      };
     }
     const split = splitToolNotes(args);
-    return { tool: call.function.name, args: split.args, reasoning: think, notes: split.notes ?? (think || undefined), usage };
+    return { tool: call.function.name, args: split.args, reasoning: think, notes: split.notes ?? (think || undefined), usage, diagnostic: baseDiagnostic };
   }
 
   // mode === "json"
   let parsed: any;
   try {
-    parsed = extractJson(msg.content ?? msg.reasoning_content ?? "");
+    parsed = extractJsonFromMessage(msg);
   } catch (e: any) {
-    return { tool: "parse_error", args: {}, reasoning: `JSON parse failed: ${e.message} | raw: ${think.slice(0, 200)}`, usage };
+    return {
+      tool: "parse_error",
+      args: {},
+      reasoning: `JSON parse failed: ${e.message} | raw: ${think.slice(0, 200)}`,
+      usage,
+      diagnostic: { ...baseDiagnostic, cause: "parse_error" },
+    };
   }
   const reasoning = typeof parsed.reasoning === "string" ? parsed.reasoning : "";
   return {
@@ -130,6 +216,7 @@ export function parseChatResponse(cfg: ModelConfig, json: ChatResponse): Decisio
     reasoning,
     notes: typeof parsed.notes === "string" ? parsed.notes : (reasoning || undefined),
     usage,
+    diagnostic: baseDiagnostic,
   };
 }
 
@@ -160,7 +247,7 @@ export function buildChatPayload(
       { role: "user", content: userContent },
     ],
     temperature: cfg.temperature ?? 0.3,
-    max_tokens: cfg.maxTokens ?? 2048,
+    max_tokens: cfg.maxTokens ?? DEFAULT_MAX_TOKENS,
   };
   if (cfg.mode === "tools") {
     payload.tools = openAiTools();
@@ -171,6 +258,35 @@ export function buildChatPayload(
   return payload;
 }
 
+export function retryOptionsForDecision(decision: Pick<Decision, "tool">): { toolChoice: "required" } | null {
+  return decision.tool === "no_tool_call" || decision.tool === "no_tool_call_length"
+    ? { toolChoice: "required" }
+    : null;
+}
+
+type DroppablePayloadField = "tool_choice" | "response_format" | "temperature" | "max_tokens";
+
+function fieldForProviderError(message: string): DroppablePayloadField | null {
+  const m = message.toLowerCase();
+  const unsupported = /not (?:a )?(?:valid|supported|recognized|allowed)|unsupported|unknown|unrecognized|unexpected|invalid (?:field|parameter)|is not supported/;
+  if ((m.includes("tool_choice") || m.includes("tool choice") || m.includes("toolchoice")) && unsupported.test(m)) return "tool_choice";
+  if ((m.includes("response_format") || m.includes("response format") || m.includes("json_object")) && unsupported.test(m)) return "response_format";
+  if (m.includes("temperature") && unsupported.test(m)) return "temperature";
+  if ((m.includes("max_tokens") || m.includes("max token")) && unsupported.test(m)) return "max_tokens";
+  return null;
+}
+
+export function sanitizePayloadForProviderError(
+  payload: unknown,
+  message: string,
+): { field: DroppablePayloadField; payload: Record<string, unknown> } | null {
+  const field = fieldForProviderError(message);
+  if (!field || !payload || typeof payload !== "object" || !Object.prototype.hasOwnProperty.call(payload, field)) return null;
+  const clean = { ...(payload as Record<string, unknown>) };
+  delete clean[field];
+  return { field, payload: clean };
+}
+
 async function callChat(
   endpoint: string,
   apiKey: string | undefined,
@@ -179,6 +295,8 @@ async function callChat(
   retries = 2,
 ): Promise<ChatResponse> {
   let lastErr: Error | null = null;
+  let currentPayload = payload;
+  const droppedFields = new Set<DroppablePayloadField>();
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const controller = new AbortController();
@@ -192,7 +310,7 @@ async function callChat(
             ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
             ...(extraHeaders ?? {}),
           },
-          body: JSON.stringify(payload),
+          body: JSON.stringify(currentPayload),
           signal: controller.signal,
         });
       } finally {
@@ -201,6 +319,15 @@ async function callChat(
       const body = (await res.body.json()) as ChatResponse;
       if (res.statusCode < 400) return body;
       const m = body?.error?.message ?? `status ${res.statusCode}`;
+      if (res.statusCode === 400) {
+        const sanitized = sanitizePayloadForProviderError(currentPayload, m);
+        if (sanitized && !droppedFields.has(sanitized.field)) {
+          droppedFields.add(sanitized.field);
+          currentPayload = sanitized.payload;
+          attempt--;
+          continue;
+        }
+      }
       const err = new Error(`HTTP ${res.statusCode}: ${m}`);
       // 4xx (except rate-limit) are caller errors — don't retry.
       if (res.statusCode < 500 && res.statusCode !== 429) throw err;
@@ -238,14 +365,15 @@ export function makeOpenAiPlayer(cfg: ModelConfig): DecideFn {
     const payload = buildChatPayload(cfg, systemContent, state, ctx);
     const json = await callChat(endpoint, apiKey, cfg.extraHeaders, payload);
     const decision = parseChatResponse(cfg, json);
-    if (cfg.mode !== "tools" || decision.tool !== "no_tool_call") return decision;
+    const retryOpts = retryOptionsForDecision(decision);
+    if (cfg.mode !== "tools" || !retryOpts) return decision;
 
     const retryCtx: DecideCtx = {
       ...ctx,
       lastError: "Your previous response was text-only. Reason briefly if needed, but you must also call exactly one valid tool.",
       lastAction: undefined,
     };
-    const retryPayload = buildChatPayload(cfg, systemContent, state, retryCtx);
+    const retryPayload = buildChatPayload(cfg, systemContent, state, retryCtx, retryOpts);
     const retryJson = await callChat(endpoint, apiKey, cfg.extraHeaders, retryPayload, 0);
     const retry = parseChatResponse(cfg, retryJson);
     if (retry.reasoning) {
@@ -258,6 +386,7 @@ export function makeOpenAiPlayer(cfg: ModelConfig): DecideFn {
       tokensOut: (decision.usage?.tokensOut ?? 0) + (retry.usage?.tokensOut ?? 0),
       costUsd: (decision.usage?.costUsd ?? 0) + (retry.usage?.costUsd ?? 0),
     };
+    retry.diagnostic = { ...(retry.diagnostic ?? {}), retried: true };
     return retry;
   };
 }

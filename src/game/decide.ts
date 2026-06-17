@@ -10,6 +10,15 @@ export interface Decision {
   notes?: string;
   /** Token/cost accounting, filled by LLM adapters (naive player leaves empty). */
   usage?: { tokensIn: number; tokensOut: number; costUsd?: number };
+  /** Adapter diagnostics for provider-format failures and truncation analysis. */
+  diagnostic?: {
+    finishReason?: string | null;
+    cause?: "length" | "no_tool_call" | "bad_tool_args" | "parse_error" | "no_response" | null;
+    retried?: boolean;
+    contentLength?: number;
+    reasoningLength?: number;
+    rawToolCallsCount?: number;
+  };
 }
 
 /** Context the loop hands to the player alongside the state snapshot. */

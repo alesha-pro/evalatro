@@ -35,6 +35,8 @@ export function buildSubmission(
       step: m.step, ts: m.ts, state: m.state, tool: m.tool, args: m.args ?? {},
       ...(m.reasoning ? { reasoning: m.reasoning } : {}),
       illegal: m.illegal ?? null,
+      ...(m.finishReason ? { finishReason: m.finishReason } : {}),
+      ...(m.diagnostic ? { diagnostic: m.diagnostic } : {}),
       tokensIn: m.tokensIn ?? 0, tokensOut: m.tokensOut ?? 0, costUsd: m.costUsd ?? 0,
     })),
     clientMeta: {

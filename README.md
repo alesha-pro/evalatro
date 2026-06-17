@@ -64,6 +64,9 @@ BASE_URL=https://openrouter.ai/api/v1
 BASE_KEY=sk-...
 MODEL=openai/gpt-4o-mini
 MODEL_MODE=tools
+# Optional override; default is 16384.
+# MODEL_MAX_TOKENS=16384
+# LLM_REQUEST_TIMEOUT_MS=120000
 ```
 
 Run one live game:
@@ -206,9 +209,12 @@ npm run bench:watch -- naive # baseline matrix with live browser view
 npm run leaderboard         # print the local leaderboard
 ```
 
-`npm run live`, `npm run bench`, and `npm run bench:watch` use `BASE_URL`, `BASE_KEY`, `MODEL`, and `MODEL_MODE`
-from `.env` when no model name is passed. If `.env` has no active model settings, real-model commands stop instead
-of silently falling back to `naive`.
+`npm run live`, `npm run bench`, and `npm run bench:watch` use `BASE_URL`, `BASE_KEY`, `MODEL`, `MODEL_MODE`,
+and optional model knobs like `MODEL_MAX_TOKENS` or `LLM_REQUEST_TIMEOUT_MS` from `.env` when no model name is
+passed. The default per-turn output limit is 16384 tokens; tools mode retries text-only answers with a required
+tool call and gracefully drops provider fields such as `tool_choice` or `response_format` when an OpenAI-compatible
+server rejects them. If `.env` has no active model settings, real-model commands stop instead of silently falling
+back to `naive`.
 
 Add named model presets in `balatro.config.json`, then run:
 
