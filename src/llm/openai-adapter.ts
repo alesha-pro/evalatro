@@ -334,6 +334,8 @@ async function callChat(
           },
           body: JSON.stringify(currentPayload),
           signal: controller.signal,
+          headersTimeout: LLM_REQUEST_TIMEOUT_MS,
+          bodyTimeout: LLM_REQUEST_TIMEOUT_MS,
         });
       } finally {
         clearTimeout(timer);
