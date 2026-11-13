@@ -80,8 +80,12 @@ async function main() {
         console.error(`  FAILED: ${e.message}`);
       } finally {
         logStream.end();
-        game.stop();
-        await sleep(3000);
+        // stop() resolves only once the game has exited AND the port is free.
+        // A fixed sleep here raced the shutdown: the next instance could not
+        // bind 12346, waitForHealth() burned its retries, and the run failed
+        // with "did not become healthy in time".
+        await game.stop();
+        await sleep(1000);
       }
     }
   }

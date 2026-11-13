@@ -1,4 +1,5 @@
 import { spawn, ChildProcess } from "child_process";
+import { connect } from "net";
 import * as path from "path";
 import { loadConfig } from "../config.js";
 import { BalatroBotClient } from "../client/balatrobot.js";
@@ -6,10 +7,48 @@ import { prepareEvalProfile } from "./profile.js";
 
 export const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
+/** How long stop() waits for a killed game to actually exit before giving up. */
+const STOP_TIMEOUT_MS = 8000;
+/** Grace period between SIGTERM and SIGKILL. */
+const KILL_GRACE_MS = 5000;
+/** How long to wait for the port to be released after the process exits. */
+const PORT_FREE_TIMEOUT_MS = 15000;
+
+/** Is something accepting connections on this port right now? */
+function portInUse(port: number, timeoutMs = 500): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    let settled = false;
+    const done = (inUse: boolean) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(inUse);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
+
+/**
+ * Wait until nothing is listening on the port. Process exit is not proof the
+ * socket is gone: the CLI can die before its Balatro child releases it, and the
+ * next seed spawns into the same port.
+ */
+async function waitForPortFree(port: number, timeoutMs = PORT_FREE_TIMEOUT_MS): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!(await portInUse(port))) return;
+    await sleep(250);
+  }
+}
+
 export interface GameHandle {
   port: number;
   proc?: ChildProcess;
-  stop: () => void;
+  /** Resolves once the game process (and its child) is gone. */
+  stop: () => Promise<void>;
 }
 
 /** Spawn Balatro under balatrobot's CLI on the given port (paths from config). */
@@ -17,7 +56,7 @@ export function launchBalatro(port?: number): GameHandle {
   const cfg = loadConfig();
   const p = port ?? cfg.basePort;
   if (cfg.launchMode === "attach") {
-    return { port: p, stop: () => {} };
+    return { port: p, stop: async () => {} };
   }
   const preparedProfile = prepareEvalProfile(cfg.evalProfileSlot);
 
@@ -45,32 +84,51 @@ export function launchBalatro(port?: number): GameHandle {
     env,
   });
   let exited = false;
-  proc.once("exit", () => { exited = true; preparedProfile.restore(); });
+  let restored = false;
+  const restoreProfile = () => {
+    if (restored) return;
+    restored = true;
+    preparedProfile.restore();
+  };
+  proc.once("exit", () => { exited = true; restoreProfile(); });
+
+  const signalTree = (signal: NodeJS.Signals) => {
+    const pid = proc.pid;
+    if (!pid) return;
+    try {
+      if (process.platform === "win32") {
+        spawn("taskkill", ["/F", "/T", "/PID", String(pid)], { stdio: "ignore", shell: false });
+      } else {
+        process.kill(-pid, signal);
+      }
+    } catch { /* best effort */ }
+  };
 
   return {
     port: p,
     proc,
-    stop: () => {
-      if (!proc.pid) {
-        preparedProfile.restore();
+    stop: async () => {
+      if (!proc.pid || exited) {
+        restoreProfile();
         return;
       }
-      try {
-        if (process.platform === "win32") {
-          const killer = spawn("taskkill", ["/F", "/T", "/PID", String(proc.pid)], { stdio: "ignore", shell: false });
-          killer.once("exit", () => preparedProfile.restore());
-          setTimeout(() => preparedProfile.restore(), 5000).unref?.();
-          return;
-        }
-        process.kill(-proc.pid, "SIGTERM");
-        const timer = setTimeout(() => {
-          if (!exited) {
-            try { process.kill(-proc.pid!, "SIGKILL"); } catch { /* best effort */ }
-          }
-          preparedProfile.restore();
-        }, 5000);
-        timer.unref?.();
-      } catch { /* best effort */ preparedProfile.restore(); }
+      // Resolve only once the game is actually gone. The next seed binds the
+      // same port, and spawning it while this instance still holds 12346 makes
+      // waitForHealth() exhaust its whole retry budget and fail the run.
+      const exitedPromise = new Promise<void>((resolve) => {
+        proc.once("exit", () => resolve());
+      });
+      signalTree("SIGTERM");
+      const killTimer = setTimeout(() => {
+        if (!exited) signalTree("SIGKILL");
+      }, KILL_GRACE_MS);
+      killTimer.unref?.();
+      await Promise.race([exitedPromise, sleep(STOP_TIMEOUT_MS)]);
+      clearTimeout(killTimer);
+      restoreProfile();
+      // Confirm the socket is actually gone before the caller spawns the next
+      // seed. Sleeping a fixed number of seconds is what caused the race.
+      await waitForPortFree(p);
     },
   };
 }
