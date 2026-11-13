@@ -52,7 +52,7 @@ async function main() {
   insertRun(db, rec, "live"); // count this game in the leaderboard (if it completed)
   await maybeSubmit(db, rec, model, cfg);
   console.error(`Game over (${rec.outcome}): ${label} reached ante ${rec.maxAnte}. Leaderboard → http://localhost:${cfg.relayPort}/leaderboard.html · Ctrl+C to exit.`);
-  game.stop();
+  await game.stop();
 }
 
 main().catch((e) => console.error(e));
