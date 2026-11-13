@@ -6,6 +6,7 @@ import { RunRecord } from "./game/loop.js";
 import { ModelConfig, BenchConfig } from "./config.js";
 import { computeCodeHash, EVAL_VERSION } from "./scoring/codehash.js";
 import { gameMoves } from "./bench/db.js";
+import { bodyBytes, fitSubmission, trimSubmission } from "./submit-trim.js";
 
 const RUNNER_VERSION = (() => {
   try { return JSON.parse(fs.readFileSync("package.json", "utf8")).version || "0.0.0"; } catch { return "0.0.0"; }
@@ -67,7 +68,18 @@ export async function maybeSubmit(db: Database.Database, rec: RunRecord, model: 
   if (!cfg.submit || !cfg.submitUrl || !model) return; // silently no-op when not configured
   try {
     const { moves } = gameMoves(db, rec.gameId);
-    const submission = buildSubmission(rec, moves, model, { submitter: cfg.submitterHandle || undefined, startedAt: rec.ts });
+    const base = buildSubmission(rec, moves, model, { submitter: cfg.submitterHandle || undefined, startedAt: rec.ts });
+    // A long run by a verbose reasoning model can exceed the relay's 8 MiB
+    // /api/runs cap and fail as 413 {"error":"body too large"}, losing the run.
+    // Send the first candidate that fits: full, reasoning dropped, then state
+    // snapshots reduced to the fields the server actually scores.
+    const submission = fitSubmission([base, trimSubmission(base, 1), trimSubmission(base, 2)]);
+    if (submission !== base) {
+      console.error(
+        `  submit payload trimmed → ${Math.round(bodyBytes(submission) / 1024)} KiB ` +
+        `(full ${Math.round(bodyBytes(base) / 1024)} KiB)`,
+      );
+    }
     const r = await submitRun(cfg.submitUrl, submission);
     if (r.ok) console.error(`  submitted → score ${r.body.score ?? "?"}${r.body.official ? " (official)" : ""}${r.body.deduped ? " (dup)" : ""}`);
     else console.error(`  submit failed (${r.status}): ${JSON.stringify(r.body)}`);
