@@ -206,11 +206,42 @@ export async function executeTool(
   return summarizeState(raw);
 }
 
-// ── Minimal zod → JSON Schema for the OpenAI tool format ──────────────
-// Covers exactly the shapes used above (object of number / array<number> /
-// boolean / string, each optionally optional). Kept dependency-free.
+// ── zod → JSON Schema for the OpenAI tool format ──────────────────────
+//
+// What is rendered here IS the benchmark's interface contract: if a parameter
+// loses its `type`, the model can only guess and its guess is scored as an
+// illegal move. Two failure modes have already cost real runs:
+//
+//   1. zod 4 removed `_def.typeName` (internals moved to `_zod.def`), so the
+//      hand-rolled walker below returned `{}` for every field. Models were
+//      sent a description with no type at all, and quoted a bare numeric
+//      index: "BAD_ARGS - shop_buy: pack: expected number, received string".
+//   2. The walker never read min/max checks, so `cards: z.array().max(5)`
+//      advertised no `maxItems` under any zod version, and models played 8
+//      cards ("Array must contain at most 5 element(s)").
+//
+// So: prefer zod's own converter when the installed major provides one, and
+// keep a zod 3 fallback that carries array bounds. A shape must never fall
+// through to `{}` silently — see the registry invariants in test-adapter.ts.
 
-function fieldToJson(schema: z.ZodTypeAny): any {
+export interface JsonSchema {
+  type: "object";
+  properties: Record<string, any>;
+  required: string[];
+  additionalProperties: boolean;
+}
+
+/** zod 4+ emits safeint bounds on every integer; noise in a tool definition. */
+function stripNumericBounds(node: any): void {
+  if (!node || typeof node !== "object") return;
+  delete node.minimum;
+  delete node.maximum;
+  if (node.items) stripNumericBounds(node.items);
+  if (node.properties) Object.values(node.properties).forEach(stripNumericBounds);
+}
+
+/** zod 3 fallback: walk `_def.typeName`, keeping array bounds. */
+function fieldToJsonV3(schema: z.ZodTypeAny): any {
   let s: any = schema;
   while (s?._def && (s._def.typeName === "ZodOptional" || s._def.typeName === "ZodDefault")) {
     s = s._def.innerType;
@@ -220,29 +251,49 @@ function fieldToJson(schema: z.ZodTypeAny): any {
     tn === "ZodNumber" ? { type: "integer" }
     : tn === "ZodString" ? { type: "string" }
     : tn === "ZodBoolean" ? { type: "boolean" }
-    : tn === "ZodArray" ? { type: "array", items: fieldToJson(s._def.type) }
+    : tn === "ZodArray" ? {
+        type: "array",
+        items: fieldToJsonV3(s._def.type),
+        ...(s._def.minLength ? { minItems: s._def.minLength.value } : {}),
+        ...(s._def.maxLength ? { maxItems: s._def.maxLength.value } : {}),
+      }
     : {};
   const desc = (schema as any)?._def?.description ?? s?._def?.description;
   if (desc) out.description = desc;
   return out;
 }
 
-export interface JsonSchema {
-  type: "object";
-  properties: Record<string, any>;
-  required: string[];
-  additionalProperties: boolean;
-}
-
-export function toJsonSchema(schema: z.ZodObject<any>): JsonSchema {
+function toJsonSchemaV3(schema: z.ZodObject<any>): JsonSchema {
   const shape = schema.shape as Record<string, z.ZodTypeAny>;
   const properties: Record<string, any> = {};
   const required: string[] = [];
   for (const [key, field] of Object.entries(shape)) {
-    properties[key] = fieldToJson(field);
+    properties[key] = fieldToJsonV3(field);
     if (!field.isOptional()) required.push(key);
   }
   return { type: "object", properties, required, additionalProperties: false };
+}
+
+export function toJsonSchema(schema: z.ZodObject<any>): JsonSchema {
+  const native = (z as any).toJSONSchema;
+  if (typeof native === "function") {
+    // `io: "input"` keeps optional fields out of `required`, matching the
+    // argument side of the contract. Some 4.x builds reject the options bag.
+    let js: any;
+    try {
+      js = native(schema, { io: "input" });
+    } catch {
+      js = native(schema);
+    }
+    stripNumericBounds(js);
+    return {
+      type: "object",
+      properties: js.properties ?? {},
+      required: js.required ?? [],
+      additionalProperties: false,
+    };
+  }
+  return toJsonSchemaV3(schema);
 }
 
 /** OpenAI-compatible tool definitions for the action surface (for adapters). */

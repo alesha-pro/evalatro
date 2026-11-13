@@ -33,6 +33,26 @@ const playHandSchema = openAiTools().find(t => t.function.name === "play_hand")?
 check("action tools expose optional notes memory", !!playHandSchema?.properties.notes);
 check("notes memory is optional", !(playHandSchema?.required ?? []).includes("notes"));
 
+// The rendered schema IS what the model is told to produce, so assert on it
+// directly. A zod major bump once emptied every parameter type without failing
+// any test: the benchmark kept running while measuring models' guesses about
+// argument types instead of their play.
+const JSON_TYPES = new Set(["integer", "number", "string", "boolean", "array", "object"]);
+const untyped: string[] = [];
+for (const t of openAiTools()) {
+  for (const [field, prop] of Object.entries<any>(t.function.parameters.properties)) {
+    if (!JSON_TYPES.has(prop?.type)) untyped.push(`${t.function.name}.${field}`);
+  }
+}
+check("every advertised parameter has a JSON type", untyped.length === 0, untyped.join(", "));
+
+const shopBuyParams = openAiTools().find(t => t.function.name === "shop_buy")!.function.parameters;
+eq("shop_buy.pack renders as an integer index", shopBuyParams.properties.pack.type, "integer");
+check("shop_buy params stay optional", (shopBuyParams.required ?? []).length === 0);
+eq("play_hand.cards advertises maxItems", playHandSchema?.properties.cards.maxItems, 5);
+eq("play_hand.cards advertises minItems", playHandSchema?.properties.cards.minItems, 1);
+check("play_hand.cards is required", (playHandSchema?.required ?? []).includes("cards"));
+
 console.log("\ntools mode:");
 let d = parseChatResponse(toolsCfg, {
   choices: [{ message: { content: "play a pair", tool_calls: [{ function: { name: "play_hand", arguments: '{"cards":[0,1,2]}' } }] } }],
