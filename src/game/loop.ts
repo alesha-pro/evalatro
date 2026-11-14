@@ -105,9 +105,31 @@ export async function runGame(decide: DecideFn, opts: RunOptions): Promise<RunRe
 
   try {
     // Ensure a clean start, then start the run on the fixed seed.
+    //
+    // menu() can fail when the game is in a state the mod cannot exit from —
+    // notably after a finished run, where setup_run() leaves G.GAME without a
+    // viewed_back and start() then dies inside the Lua mod with
+    // "attempt to index field 'viewed_back' (a nil value)". Swallowing the
+    // menu() failure defers that into start(), where it reads like a harness
+    // bug and costs a whole run to diagnose. Report the reset failure instead.
     let raw = await client.gamestate();
     if (raw.state !== "MENU") {
-      try { raw = await client.menu(); } catch { /* already mid-run; start() will reset */ }
+      const from = raw.state;
+      try {
+        raw = await client.menu();
+      } catch (e: any) {
+        throw new Error(
+          `reset failed: game is in ${from} and menu() errored (${e.message}); ` +
+          `restart Balatro so the next run starts from MENU`,
+        );
+      }
+      const after = summarizeState(raw);
+      if (after.state !== "MENU") {
+        throw new Error(
+          `reset failed: game is in ${after.state}, expected MENU after menu(); ` +
+          `restart Balatro so the next run starts from MENU`,
+        );
+      }
     }
     raw = await client.start(deck, stake, seed);
     state = summarizeState(raw);
