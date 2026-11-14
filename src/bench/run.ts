@@ -71,7 +71,13 @@ async function main() {
         // SAME seed across the K runs → isolates the model's own variance.
         const rec = await runGame(decide, { client, model: label, gameId, seed, logStream });
         insertRun(db, rec, "bench");
-        await maybeSubmit(db, rec, model, cfg);
+        // A run that recorded no moves has an empty transcript: the server
+        // rejects it with 400 {"error":"no moves"} and it can never be scored
+        // (outcome "error" is excluded from the leaderboard anyway). Keep the
+        // row for diagnostics, but don't submit it.
+        if (rec.actions > 0) {
+          await maybeSubmit(db, rec, model, cfg);
+        }
         console.error(
           `  ante=${rec.maxAnte} actions=${rec.actions} illegal=${rec.illegalActions}` +
           (rec.error ? ` ERROR: ${rec.error}` : ""),
