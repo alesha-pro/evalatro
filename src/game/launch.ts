@@ -13,6 +13,8 @@ const STOP_TIMEOUT_MS = 8000;
 const KILL_GRACE_MS = 5000;
 /** How long to wait for the port to be released after the process exits. */
 const PORT_FREE_TIMEOUT_MS = 15000;
+/** How often to re-probe the port while waiting for it to free. */
+const PORT_POLL_MS = 250;
 
 /** Is something accepting connections on this port right now? */
 function portInUse(port: number, timeoutMs = 500): Promise<boolean> {
@@ -35,20 +37,100 @@ function portInUse(port: number, timeoutMs = 500): Promise<boolean> {
  * Wait until nothing is listening on the port. Process exit is not proof the
  * socket is gone: the CLI can die before its Balatro child releases it, and the
  * next seed spawns into the same port.
+ *
+ * Returns `false` when the deadline passes with the port still occupied. The
+ * caller must treat that as a failure — the old version returned `void` here,
+ * so a held port looked exactly like a clean shutdown.
  */
-async function waitForPortFree(port: number, timeoutMs = PORT_FREE_TIMEOUT_MS): Promise<void> {
+async function waitForPortFree(
+  isPortInUse: () => Promise<boolean>,
+  timeoutMs = PORT_FREE_TIMEOUT_MS,
+  pollMs = PORT_POLL_MS,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (!(await portInUse(port))) return;
-    await sleep(250);
+  for (;;) {
+    // Probe at least once even past the deadline: teardown can be entered
+    // after the launcher already exited, which says nothing about the socket.
+    if (!(await isPortInUse())) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(pollMs);
   }
 }
 
 export interface GameHandle {
   port: number;
   proc?: ChildProcess;
-  /** Resolves once the game process (and its child) is gone. */
+  /**
+   * Resolves once the game process (and its child) is gone AND the port is
+   * free. Rejects when the port is still occupied at the deadline — the caller
+   * must not start the next seed in that case.
+   */
   stop: () => Promise<void>;
+}
+
+/**
+ * Dependencies of the shutdown sequence, injected so the sequencing can be
+ * tested without spawning Balatro. The production wiring is in `stop()` below;
+ * `scripts/teardown.test.mjs` drives it with a real localhost listener.
+ */
+export interface TeardownDeps {
+  port: number;
+  /** Launcher pid, or undefined when it never started. */
+  pid?: number;
+  /** True when the launcher already emitted `exit` before teardown began. */
+  alreadyExited: boolean;
+  /** Resolves when the launcher exits. Must resolve immediately if already gone. */
+  exited: () => Promise<void>;
+  /** Signal the process group. Must not throw. */
+  signal: (sig: NodeJS.Signals) => void;
+  /** True while something still accepts connections on the port. */
+  isPortInUse: () => Promise<boolean>;
+  graceMs?: number;
+  exitTimeoutMs?: number;
+  portTimeoutMs?: number;
+  pollMs?: number;
+}
+
+/**
+ * Shut the game down and prove it is down.
+ *
+ * Two invariants, both learned from production failures:
+ *
+ *   1. Launcher exit != teardown complete. The CLI can exit while its Balatro
+ *      child still holds the port, so the socket is checked unconditionally —
+ *      including on the already-exited path, which used to return immediately.
+ *   2. The SIGKILL escalation timer is not cancelled by launcher exit. A child
+ *      that outlives its launcher is exactly the case the grace period exists
+ *      for; cancelling on exit left it running forever.
+ *
+ * Throws when the port is still occupied at the deadline rather than returning
+ * quietly, so a held socket can never look like a clean shutdown.
+ */
+export async function teardown(deps: TeardownDeps): Promise<void> {
+  const graceMs = deps.graceMs ?? KILL_GRACE_MS;
+  const exitTimeoutMs = deps.exitTimeoutMs ?? STOP_TIMEOUT_MS;
+  const portTimeoutMs = deps.portTimeoutMs ?? PORT_FREE_TIMEOUT_MS;
+  const pollMs = deps.pollMs ?? PORT_POLL_MS;
+
+  if (deps.pid) deps.signal("SIGTERM");
+  const killTimer = setTimeout(() => {
+    if (deps.pid) deps.signal("SIGKILL");
+  }, graceMs);
+  killTimer.unref?.();
+
+  try {
+    if (deps.pid && !deps.alreadyExited) {
+      await Promise.race([deps.exited(), sleep(exitTimeoutMs)]);
+    }
+    if (!(await waitForPortFree(deps.isPortInUse, portTimeoutMs, pollMs))) {
+      throw new Error(
+        `teardown failed: port ${deps.port} still in use ${portTimeoutMs}ms after shutdown; ` +
+        `refusing to start the next seed`,
+      );
+    }
+  } finally {
+    clearTimeout(killTimer);
+  }
 }
 
 /** Spawn Balatro under balatrobot's CLI on the given port (paths from config). */
@@ -108,27 +190,23 @@ export function launchBalatro(port?: number): GameHandle {
     port: p,
     proc,
     stop: async () => {
-      if (!proc.pid || exited) {
+      try {
+        await teardown({
+          port: p,
+          pid: proc.pid,
+          alreadyExited: exited,
+          exited: () => new Promise<void>((resolve) => {
+            if (exited) resolve();
+            else proc.once("exit", () => resolve());
+          }),
+          signal: signalTree,
+          isPortInUse: () => portInUse(p),
+        });
+      } finally {
+        // Restore the eval profile even when teardown fails — the original
+        // profile is needed back either way.
         restoreProfile();
-        return;
       }
-      // Resolve only once the game is actually gone. The next seed binds the
-      // same port, and spawning it while this instance still holds 12346 makes
-      // waitForHealth() exhaust its whole retry budget and fail the run.
-      const exitedPromise = new Promise<void>((resolve) => {
-        proc.once("exit", () => resolve());
-      });
-      signalTree("SIGTERM");
-      const killTimer = setTimeout(() => {
-        if (!exited) signalTree("SIGKILL");
-      }, KILL_GRACE_MS);
-      killTimer.unref?.();
-      await Promise.race([exitedPromise, sleep(STOP_TIMEOUT_MS)]);
-      clearTimeout(killTimer);
-      restoreProfile();
-      // Confirm the socket is actually gone before the caller spawns the next
-      // seed. Sleeping a fixed number of seconds is what caused the race.
-      await waitForPortFree(p);
     },
   };
 }
