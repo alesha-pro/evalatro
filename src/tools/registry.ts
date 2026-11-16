@@ -240,7 +240,26 @@ function stripNumericBounds(node: any): void {
   if (node.properties) Object.values(node.properties).forEach(stripNumericBounds);
 }
 
-/** zod 3 fallback: walk `_def.typeName`, keeping array bounds. */
+/**
+ * zod 3 keeps string length limits in `_def.checks` (`[{kind:"max",value:n}]`),
+ * not in a `_def.maxLength` field — which is why the first cut of this fallback
+ * dropped `notes.maxLength: 1200` while zod 4's converter emitted it. Read the
+ * checks directly rather than the `.maxLength` getter: the getter answers 0 for
+ * both "no limit" and an explicit `.min(0)`, so it cannot tell them apart and
+ * would advertise a limit zod 4 does not.
+ */
+function stringBoundsV3(s: any): { minLength?: number; maxLength?: number } {
+  const out: { minLength?: number; maxLength?: number } = {};
+  const checks: any[] = Array.isArray(s?._def?.checks) ? s._def.checks : [];
+  for (const c of checks) {
+    if (typeof c?.value !== "number") continue;
+    if (c.kind === "min") out.minLength = c.value;
+    else if (c.kind === "max") out.maxLength = c.value;
+  }
+  return out;
+}
+
+/** zod 3 fallback: walk `_def.typeName`, keeping array and string bounds. */
 function fieldToJsonV3(schema: z.ZodTypeAny): any {
   let s: any = schema;
   while (s?._def && (s._def.typeName === "ZodOptional" || s._def.typeName === "ZodDefault")) {
@@ -249,7 +268,7 @@ function fieldToJsonV3(schema: z.ZodTypeAny): any {
   const tn = s?._def?.typeName;
   const out: any =
     tn === "ZodNumber" ? { type: "integer" }
-    : tn === "ZodString" ? { type: "string" }
+    : tn === "ZodString" ? { type: "string", ...stringBoundsV3(s) }
     : tn === "ZodBoolean" ? { type: "boolean" }
     : tn === "ZodArray" ? {
         type: "array",
