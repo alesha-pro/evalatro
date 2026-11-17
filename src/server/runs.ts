@@ -53,13 +53,17 @@ export function transcriptProvesWin(s: Submission, targetAnte: number): boolean 
  * Transcript consistency checks. `hard` failures are tamper signals → reject.
  * `soft` flags are stored and force the run "unofficial" but keep it.
  */
-function sanityChecks(s: Submission, snaps: MoveSnapshot[], won: boolean, serverScore: number, targetAnte: number): Checks {
+export function sanityChecks(s: Submission, snaps: MoveSnapshot[], won: boolean, serverScore: number, targetAnte: number): Checks {
   const hard: string[] = [], soft: string[] = [];
   const maxAnte = snaps.reduce((m, x) => Math.max(m, x.ante || 0), 0);
 
-  // ante only ever increases in a real run
+  // An ante decrease is legal: Hieroglyph and Petroglyph both read "-1 Ante"
+  // and are ordinary shop vouchers, so 5 → 4 is a real game state. Flag it
+  // instead of rejecting. Scoring is peak-based (deriveScoreInput takes
+  // Math.max over the snapshots), so a dip cannot move the score, and a client
+  // that wanted to fabricate would simply emit a monotonic sequence anyway.
   let prev = 0;
-  for (const x of snaps) { const a = x.ante || 0; if (a < prev) { hard.push("ante decreased mid-run"); break; } prev = Math.max(prev, a); }
+  for (const x of snaps) { const a = x.ante || 0; if (a < prev) { soft.push("ante decreased mid-run"); break; } prev = Math.max(prev, a); }
 
   if (won && maxAnte < targetAnte && !stateProvesWin(finalStateOf(s), targetAnte)) {
     hard.push(`claimed win but transcript never reached ante ${targetAnte}`);
