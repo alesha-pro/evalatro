@@ -5,7 +5,7 @@ import { summarizeState, computeLegalActions, SummarizedState } from "../state/s
 import { DecideFn, DecideCtx, Decision } from "./decide.js";
 import { globalBus, EventBus } from "../bus/index.js";
 import { loadConfig } from "../config.js";
-import { scoreFromTranscriptForTarget, MoveSnapshot } from "../scoring/score.js";
+import { scoreFromTranscriptForTarget, peakAnte, MoveSnapshot } from "../scoring/score.js";
 
 /** One row of benchmark results — also the shape persisted to SQLite. */
 export interface RunRecord {
@@ -15,7 +15,10 @@ export interface RunRecord {
   deck: string;
   stake: string;
   targetAnte: number;
+  /** Antes fully cleared (ante counter − 1). NOT the peak ante — see peakAnte. */
   maxAnte: number;
+  /** Highest ante observed in the transcript. Display only; not persisted. */
+  peakAnte: number;
   finalRound: number;
   finalMoney: number;
   won: boolean;
@@ -79,7 +82,7 @@ export async function runGame(decide: DecideFn, opts: RunOptions): Promise<RunRe
 
   const rec: RunRecord = {
     gameId, model, seed, deck, stake, targetAnte,
-    maxAnte: 0, finalRound: 0, finalMoney: 0, won: false, outcome: "error", score: 0,
+    maxAnte: 0, peakAnte: 0, finalRound: 0, finalMoney: 0, won: false, outcome: "error", score: 0,
     actions: 0, illegalActions: 0, durationMs: 0,
     tokensIn: 0, tokensOut: 0, costUsd: 0,
     error: null, ts: Date.now(),
@@ -216,6 +219,10 @@ export async function runGame(decide: DecideFn, opts: RunOptions): Promise<RunRe
     // maxAnte = antes fully cleared (8 on a win; ante_num-1 otherwise, since the
     // ante counter only advances once a boss has been beaten).
     rec.maxAnte = rec.won ? targetAnte : Math.max(0, state.ante - 1);
+    // Read the peak from the transcript, not the final state: an Ante-lowering
+    // voucher can move the ante backwards, so state.ante may sit below the
+    // highest ante actually reached.
+    rec.peakAnte = peakAnte(snapshots);
     rec.finalRound = state.round;
     rec.finalMoney = state.money;
     rec.finalState = state;

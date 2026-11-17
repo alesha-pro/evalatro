@@ -51,7 +51,7 @@ async function main() {
   const rec = await runGame(decide, { client, model: label, gameId, seed });
   insertRun(db, rec, "live"); // count this game in the leaderboard (if it completed)
   await maybeSubmit(db, rec, model, cfg);
-  console.error(`Game over (${rec.outcome}): ${label} reached ante ${rec.maxAnte}. Leaderboard → http://localhost:${cfg.relayPort}/leaderboard.html · Ctrl+C to exit.`);
+  console.error(`Game over (${rec.outcome}): ${label} cleared ${rec.maxAnte} antes, peak ante ${rec.peakAnte}. Leaderboard → http://localhost:${cfg.relayPort}/leaderboard.html · Ctrl+C to exit.`);
   await game.stop();
 }
 

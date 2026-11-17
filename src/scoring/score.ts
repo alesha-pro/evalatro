@@ -95,6 +95,17 @@ export interface MoveSnapshot {
 }
 
 /**
+ * Highest ante observed in a transcript.
+ *
+ * Distinct from `antesCleared` (peak − 1) and from a run record's `maxAnte`,
+ * which stores antes cleared: an Ante-lowering voucher moves a real run
+ * backwards, so the peak and the final ante can differ by more than one.
+ */
+export function peakAnte(snapshots: MoveSnapshot[]): number {
+  return snapshots.reduce((m, s) => Math.max(m, s.ante || 0), 0);
+}
+
+/**
  * Derive the ScoreInput from one game's ordered move snapshots.
  *
  * Key facts (verified against real transcripts):
@@ -109,7 +120,7 @@ export function deriveScoreInput(snapshots: MoveSnapshot[], won: boolean, target
   const illegalActions = snapshots.filter(s => s.illegal != null).length;
   const target = Math.max(1, Math.floor(targetAnte || DEFAULT_TARGET_ANTE));
 
-  const maxAnteObserved = snapshots.reduce((m, s) => Math.max(m, s.ante || 0), 0);
+  const maxAnteObserved = peakAnte(snapshots);
   const antesCleared = won ? target : clamp(maxAnteObserved - 1, 0, target);
 
   // Within the last ante reached, the furthest blind actually attempted and the
