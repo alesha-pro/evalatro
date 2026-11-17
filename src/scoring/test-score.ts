@@ -1,4 +1,4 @@
-import { computeScore, deriveScoreInput, scoreFromTranscript, scoreFromTranscriptForTarget, MoveSnapshot } from "./score.js";
+import { computeScore, deriveScoreInput, scoreFromTranscript, scoreFromTranscriptForTarget, peakAnte, MoveSnapshot } from "./score.js";
 
 // Pure unit tests for the scoring seam — no network, no game. Mirrors test-adapter.ts.
 
@@ -75,6 +75,16 @@ const AT = (ante: number, state: string): MoveSnapshot =>
   const inp = deriveScoreInput([SH(1, "SMALL", 0, 300), SH(1, "SMALL", 0, 300, "BAD_ARGS"), SH(1, "SMALL", 100, 300)], false);
   eq("actions = snapshot count", inp.actions, 3);
   eq("illegal counted", inp.illegalActions, 1);
+}
+
+// peakAnte — the highest ante reached, which is not the final ante when a
+// voucher walks the run backwards (Hieroglyph / Petroglyph).
+console.log("\npeakAnte:");
+{
+  const dipped = [SH(1, "SMALL", 0, 300), SH(5, "BOSS", 0, 300), SH(4, "SMALL", 0, 300)];
+  eq("peak takes the maximum, not the last snapshot", peakAnte(dipped), 5);
+  eq("empty transcript has no peak", peakAnte([]), 0);
+  eq("antesCleared follows the peak, so a dip doesn't erase progress", deriveScoreInput(dipped, false, 12).antesCleared, 4);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

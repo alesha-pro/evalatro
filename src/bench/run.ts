@@ -79,7 +79,7 @@ async function main() {
           await maybeSubmit(db, rec, model, cfg);
         }
         console.error(
-          `  ante=${rec.maxAnte} actions=${rec.actions} illegal=${rec.illegalActions}` +
+          `  cleared=${rec.maxAnte} peak=${rec.peakAnte} actions=${rec.actions} illegal=${rec.illegalActions}` +
           (rec.error ? ` ERROR: ${rec.error}` : ""),
         );
       } catch (e: any) {

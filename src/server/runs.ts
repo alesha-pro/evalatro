@@ -132,6 +132,8 @@ export function handleSubmitRun(raw: unknown, ip = ""): SubmitResult {
     won,
     outcome: outcome as RunRecord["outcome"],
     maxAnte: won ? targetAnte : result.antesCleared,
+    // sanityChecks takes a max over the transcript, so this is the peak ante.
+    peakAnte: checks.maxAnte,
     score: result.score,
     actions: result.actions,
     illegalActions: result.illegalActions,
