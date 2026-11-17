@@ -20,7 +20,7 @@
     "test:setup": "node scripts/setup-local.test.mjs",
     "test:teardown": "node scripts/teardown.test.mjs",
     "test:schema": "node scripts/schema-golden.mjs",
-    "test": "node scripts/setup-local.test.mjs && node dist/llm/test-adapter.js && node dist/scoring/test-score.js && node scripts/teardown.test.mjs && node scripts/schema-golden.mjs",
+    "test": "node scripts/setup-local.test.mjs && node dist/llm/test-adapter.js && node dist/scoring/test-score.js && node dist/server/test-runs.js && node scripts/teardown.test.mjs && node scripts/schema-golden.mjs",
     "schema:golden": "node scripts/schema-golden.mjs --write",
     "check:zod4": "node scripts/check-zod4.mjs",
     "probe": "node dist/llm/probe.js",
